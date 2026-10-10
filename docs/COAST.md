@@ -2473,6 +2473,32 @@ whole `NvmFile` (§5.4).
   every height copy **[confirmed: it is not in the export's regions]**. *(beaches fact-check 2026-09-29, G5: 58
   vertices below −200 m plus an 18-vertex rim to −100 m.)*
 
+### 9.5 Every beach walkable: the walkable bounds and the beach passes (2026-10-10)
+
+The user (Overall Pass item 7): the beaches were unreachable, ringed by retail's end-of-map mountains, and the Jobs
+trade route has posts on the coast. §9.4's "walkable beaches all round later" is now built:
+
+- **Walkable bounds.** The preset's new `walkable` rectangle (X 153–176 × Z 86–105) is written as `manifest.bounds`
+  (the server's clamp) and is the World Editor's force-open limit; `playable` (X 156–174 × Z 90–102) stays the coast's
+  frozen set and `stream.playable`. Nothing outside the navmesh is walkable, so the shoreline is the limit.
+- **Ring rule** (`coast/navgen.ts`): a tile on moved ground is open exactly when it is at most knee-deep and no steeper
+  than 0.7; the 12 m beach band is gone and a retail-closed tile on moved ground may open. The lowered flanks and the
+  beaches are walkable.
+- **Synthetic regions** with dry land (Tiger Beach, Tiger Cape, the Western Strait, the tomb beach; 33 regions) get a
+  navmesh of their own (`syntheticRegionNav`: one open cell, every tile by the ring rule); open sea has none. nav.bin
+  holds 340 regions (was 307).
+- **The beach passes** (`content/coast/passes.json`, `tools/beach-passes.ts`): seven valleys through the retail ring:
+  east-shelf-north and -south (East Shelf Beach), south-beach-west and -east (Jangan South Beach, River Mouth,
+  South-East Cape), tiger-beach-east and -west (Tiger Beach, Tomb Ridge Beach, Tiger Cape), western-strait. The tool
+  writes them as World Editor layers (height deltas merged into the existing ones, the floor forced open, plants on
+  moved ground dropped), so the edits pass rebuilds terrain, lightmaps, minimap and nav. Floor 24 m wide at most 0.3
+  grade; it only cuts. Passes avoid buildings (the Bandit village, the east graveyard). Re-running the tool on an
+  export that already holds the passes adds them twice: restore the layers first.
+- **Checks:** `pnpm --filter @sro/server exec tsx src/cli/beach-reach.ts` walks the server walker from the spawn on a
+  2 m grid: every trade post, every beach area's shore and every pass end to end. The placed nests are unchanged
+  (701 of 825). The GM places gained tiger-beach, tiger-cape, tomb-ridge-beach, river-mouth and south-east-cape, and
+  every beach place sits on its real shore.
+
 ---
 
 ## §10 Life and sound

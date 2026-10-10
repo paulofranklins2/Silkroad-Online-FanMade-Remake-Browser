@@ -655,9 +655,9 @@ export function validateWorldManifest(m: unknown): string[] {
   regions.forEach((r: unknown, i: number) => {
     if (!isObj(r) || r.synthetic === undefined) return
     if (r.synthetic !== true) return err(`regions[${i}].synthetic`, 'expected true or absent')
-    // a synthetic region (docs/COAST.md §9.1) has no navigation and never lies in the playable rectangle
-    if (r.navmesh !== null) err(`regions[${i}].navmesh`, 'a synthetic region has no navmesh')
-    if (isNum(r.id) && navIds.has(r.id)) err(`regions[${i}]`, 'a synthetic region is not in nav.regions')
+    // a synthetic region (docs/COAST.md §9.1) never lies in the playable rectangle; since §9.5 its dry land has a
+    // navmesh of its own, and then it is in nav.regions
+    if ((r.navmesh !== null) !== (isNum(r.id) && navIds.has(r.id))) err(`regions[${i}].navmesh`, 'a synthetic region has a navmesh exactly when it is in nav.regions')
     if (playable && isNum(r.x) && isNum(r.z) && isNum(playable.x0) && isNum(playable.x1) && isNum(playable.z0) && isNum(playable.z1) &&
       r.x >= playable.x0 && r.x <= playable.x1 && r.z >= playable.z0 && r.z <= playable.z1) err(`regions[${i}]`, 'a synthetic region lies in stream.playable')
   })

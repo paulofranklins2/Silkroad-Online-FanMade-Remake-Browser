@@ -1,0 +1,18 @@
+{
+  "format": "sro-beach-passes",
+  "version": 1,
+  "notes": [
+    "The beach passes (docs/COAST.md §9.5): valleys cut through retail's end-of-map mountain ring so every beach is reachable on foot from Jangan. pnpm tsx packages/convert/src/tools/beach-passes.ts [--export <dir>] writes them into content/world-edits/jangan-fields/ (height deltas merged with the layers already there, walk force-open on the pass floor).",
+    "A pass: a polyline in glTF metres (x east, z south), the floor's half width, the steepest grade along it (the floor is the largest grade-limited profile under the ground: it only cuts, never fills), and the valley walls' slope out to where they meet the ground."
+  ],
+  "defaults": { "halfWidthM": 12, "maxGrade": 0.3, "wallSlope": 0.8, "smoothM": 16 },
+  "passes": [
+    { "name": "east-shelf-north", "to": "East Shelf Beach", "points": [[1060, -150], [1200, -140], [1340, -150]] },
+    { "name": "east-shelf-south", "to": "East Shelf Beach, South-East Cape", "points": [[1110, 590], [1200, 595], [1340, 590]] },
+    { "name": "south-beach-west", "to": "Jangan South Beach, River Mouth", "points": [[-60, 880], [-40, 1060], [-20, 1250]] },
+    { "name": "south-beach-east", "to": "Jangan South Beach, South-East Cape", "points": [[800, 880], [820, 1060], [800, 1250]] },
+    { "name": "tiger-beach-east", "to": "Tiger Beach, Tomb Ridge Beach", "points": [[-900, 1140], [-910, 1320], [-900, 1480]] },
+    { "name": "tiger-beach-west", "to": "Tiger Beach, Tiger Cape", "points": [[-1850, 1120], [-1860, 1320], [-1850, 1480]] },
+    { "name": "western-strait", "to": "Western Strait, Ferry Landing", "points": [[-2080, 600], [-2300, 610], [-2480, 600]] }
+  ]
+}

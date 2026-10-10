@@ -4,6 +4,67 @@
   "world": "jangan-fields",
   "regions": [
     {
+      "x": 158,
+      "z": 89,
+      "base": "cb6c13cc0858f733161093c93bb5a8c604b1d63eb8876f164349b3d449303c80",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 162,
+      "z": 89,
+      "base": "073814098ec6a3b65f4d930218a04c9d3a6c8fa381e0201a6000b28d3d38c527",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 163,
+      "z": 89,
+      "base": "a25c4e4a101b0e1fd8fb6fab6371e5f460214485c6500168e7c28cfc7eeb8832",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 158,
+      "z": 90,
+      "base": "97471664be43827ac53014efc329035542b0affe761da243a55a02767d7a3f07",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 162,
+      "z": 90,
+      "base": "1c41df8c8294335967e12822a0b7fef6cecaefe4dc98cf33525f4a2a06f44660",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 163,
+      "z": 90,
+      "base": "5c9c4935f9344e453f2143df46718521e8e5b842c1f335b3938968d60d9982c5",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 167,
+      "z": 90,
+      "base": "50b0961f7b65bee68a605740aeac36a65b1ccd6a5ed9bf8abd2572d8ba61a6c3",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
       "x": 168,
       "z": 90,
       "base": "3ce5f978e1bdfb94eeeb98fa0924003c7148ae39c02cafec52e36d4c5fb1e2b5",
@@ -28,6 +89,50 @@
       "base": "6a956fc8cc319f5712761d11ba2632204da018f73557b116d30e94df61ea4ba0",
       "layers": [
         "height"
+      ]
+    },
+    {
+      "x": 171,
+      "z": 90,
+      "base": "6a3eaf61d301df19c2dd1df075907317c304adc9182a73911d643f6d55181d53",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 172,
+      "z": 90,
+      "base": "fc6f12e1e27553aeddbf92af3f9d8e9c2d22c7e2e6e6fe91207172392e130a47",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 158,
+      "z": 91,
+      "base": "4f5b9b193e2a114fb3f11e60adf867b0af9664a9f0f7c3ae8f417e4aafb488c5",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 163,
+      "z": 91,
+      "base": "571fca406ff20aff6150db09a901688074c27a20ea31eaaf719af7b90ae1a03d",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 167,
+      "z": 91,
+      "base": "5ef5b2bafdee574e464b81daf1a6726c8805cbaf1e8d4b2ba2b362de0b83e4dc",
+      "layers": [
+        "height",
+        "walk"
       ]
     },
     {
@@ -58,6 +163,32 @@
       ]
     },
     {
+      "x": 171,
+      "z": 91,
+      "base": "8aba7b4eb3bffe04a4348ffda08d7f670f16a460aaae1e8297a24af0722c5967",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 172,
+      "z": 91,
+      "base": "1b638ec6719f628d58e508337091927f1eb7e8e08032e711acc78e3000904e09",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 167,
+      "z": 92,
+      "base": "f47e7148499e22c9199ae6e42207dd80acced6f3340f3c096e606600a323fb7f",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
       "x": 168,
       "z": 92,
       "base": "9337d62bb1126ac5eb679721fd19b8a9d7607bd2c605f3354a435d048f6d81d2",
@@ -83,15 +214,129 @@
       "layers": [
         "height"
       ]
+    },
+    {
+      "x": 172,
+      "z": 92,
+      "base": "2f8b75f13bc0b47c9e6cb066e13f6c58dd3bbe9986634723c95d4886ee77093b",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 155,
+      "z": 93,
+      "base": "e14109c3763a83150077edf0b4268f692bca0a63e363e086aaa5292859a819e6",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 156,
+      "z": 93,
+      "base": "c72d86c91dda1fa779ac005cb56d4a283c505eac5b9b0e5e818a671bcc9a9c0b",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 157,
+      "z": 93,
+      "base": "ff50df1dd8cf4f20eb11de76054a891579f45fdc3dac40944adf80ca556259b7",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 173,
+      "z": 93,
+      "base": "559c73e8e0b69c3cd9c14f45cbf9978404f225b6b981ce8f1c7b120a317ccb20",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 174,
+      "z": 93,
+      "base": "2dab6ca9995b7997194c4c0ffa76e9c9e6f981e76ad314c516cdb76b2309f3b2",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 175,
+      "z": 93,
+      "base": "571e66b7642353c79bd7df943aec0a9ae2fc22c3bc7200c61e3fa2b998015416",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 155,
+      "z": 94,
+      "base": "e9fb17984e3e7ae547f6bd16c4122bdd7708109e2cf36382516a67085944f54e",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 174,
+      "z": 94,
+      "base": "58b5ba06c847ea05a970ba7386b6bb6a3acd7d880d14504dc7325b39cbd324d2",
+      "layers": [
+        "height"
+      ]
+    },
+    {
+      "x": 173,
+      "z": 97,
+      "base": "f3b0b3ddde21b4c4352209ba80bbc68ec3962daf601f75c9cc682473db199ad4",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 174,
+      "z": 97,
+      "base": "4ceb4a3c2bced4dab75b860f6a0d22177e897c03580e493e36ba99d5f5f2db0c",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 175,
+      "z": 97,
+      "base": "fd2086efd021cfb29c3e9eac22e49a4224ff68ea19fa0b7c485865e4b06eea14",
+      "layers": [
+        "height",
+        "walk"
+      ]
+    },
+    {
+      "x": 174,
+      "z": 98,
+      "base": "d90a55ada907db3c1e346a02ef0e1124b7b6e8e9de7596e22f16749954203d1a",
+      "layers": [
+        "height"
+      ]
     }
   ],
   "counts": {
-    "height": 9,
+    "height": 37,
     "paint": 3,
     "grass": 3,
-    "walk": 3,
+    "walk": 24,
     "move": 16,
-    "drop": 0,
+    "drop": 14,
     "add": 10
   }
 }

@@ -27,7 +27,7 @@ import { coastField, distanceTo, seaMasks } from '../src/world/coast/field.ts'
 import { CELLS_PER_REGION, colX, latticeShape, rowZ } from '../src/world/coast/lattice.ts'
 import { bakeRegionLightmap, LIGHTMAP_LIT, LIGHTMAP_SHADOW } from '../src/world/coast/lightmap.ts'
 import { closeRing, findInBoundsLink, reachesBothWays, tilesToRowRects, widenLink } from '../src/world/coast/links.ts'
-import { editRegionNav, NAV_BEACH_BAND_M } from '../src/world/coast/navgen.ts'
+import { editRegionNav, NAV_MAX_SLOPE, syntheticRegionNav } from '../src/world/coast/navgen.ts'
 import { paintCoast, textureWord } from '../src/world/coast/paint.ts'
 import { COAST_CLASS, runCoastPass, type CoastResult } from '../src/world/coast/pass.ts'
 import { placementEdits } from '../src/world/coast/placements.ts'
@@ -356,7 +356,7 @@ describe('coast navigation (./coast/navgen.ts)', () => {
     expect(editRegionNav(nvm, e).nvm).toBe(nvm)
   })
 
-  it('rewrites a ring region: heights equal the terrain, flanks above the beach band close, retail-closed tiles stay closed', () => {
+  it('rewrites a ring region: heights equal the terrain, moved tiles open exactly when dry enough and gentle (§9.5)', () => {
     const reg = W.regions.get(regionKey(13, 12))!
     const retailClosed = (tx: number, tz: number) => tx === 40 && tz === 90
     const edit = W.source.navEdit(13, 12, reg)!
@@ -365,23 +365,33 @@ describe('coast navigation (./coast/navgen.ts)', () => {
     const grid = terrainOf(13, 12)!.grid
     expect(Buffer.from(nvm.heights.buffer).equals(Buffer.from(grid.heights.buffer))).toBe(true)
     expect(stats.closed).toBeGreaterThan(100)
-    expect(stats.opened).toBe(0)
-    expect(nvm.tileCells[90 * NVM_TILES + 40]! >= nvm.openCellCount).toBe(true)
     const SL = W.cfg.seaLevelM
     for (let tz = 0; tz < NVM_TILES; tz++) {
       for (let tx = 0; tx < NVM_TILES; tx++) {
         const open = nvm.tileCells[tz * NVM_TILES + tx]! < nvm.openCellCount
         const h = [grid.heights[tz * G + tx]!, grid.heights[tz * G + tx + 1]!, grid.heights[(tz + 1) * G + tx]!, grid.heights[(tz + 1) * G + tx + 1]!]
-        // an open tile touching moved ground lies in the knee-deep .. beach band
-        if (open && [0, 1, G, G + 1].some(o => edit.moved![tz * G + tx + o])) {
-          for (const v of h) {
-            expect(v / 10).toBeGreaterThanOrEqual(SL - 0.4 - 1e-4)
-            expect(v / 10).toBeLessThanOrEqual(SL + NAV_BEACH_BAND_M + 1e-4)
-          }
+        // a tile touching moved ground is open exactly when it is at most knee-deep and no steeper than NAV_MAX_SLOPE
+        if ([0, 1, G, G + 1].some(o => edit.moved![tz * G + tx + o])) {
+          const rise = Math.max(Math.abs(h[0]! - h[1]!), Math.abs(h[2]! - h[3]!), Math.abs(h[0]! - h[2]!), Math.abs(h[1]! - h[3]!)) / 10
+          expect(open).toBe(h.every(v => v / 10 >= SL - 0.4) && rise / 2 <= NAV_MAX_SLOPE)
         }
         if (!open) expect(nvm.tileFlags[tz * NVM_TILES + tx]! & 1).toBe(1)
       }
     }
+  })
+
+  it('gives a synthetic region its own navmesh by the same rule, and none to open sea', () => {
+    const flat = (m: number) => new Float32Array(G * G).fill(m * 10)
+    const base = { x: 20, z: 20, heights: null, moved: null, ring: true, seaLevelM: 5, openTiles: [], removedWater: new Set<number>() }
+    expect(syntheticRegionNav(base, flat(-10))).toBeNull()
+    const land = syntheticRegionNav(base, flat(8))!
+    expect(land.nvm.openCellCount).toBe(1)
+    expect(land.nvm.tileCells.every(c => c === 0)).toBe(true)
+    const ramp = new Float32Array(G * G)
+    for (let gz = 0; gz < G; gz++) for (let gx = 0; gx < G; gx++) ramp[gz * G + gx] = (gx < 48 ? 8 : 8 + (gx - 48) * 2) * 10
+    const r = syntheticRegionNav(base, ramp)!
+    expect(r.nvm.tileCells[10 * NVM_TILES + 10]).toBe(0)
+    expect(r.nvm.tileCells[10 * NVM_TILES + 60]! >= r.nvm.openCellCount).toBe(true)
   })
 
   it('opens the openTiles rectangles inside the bounds and nothing else', () => {

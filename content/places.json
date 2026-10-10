@@ -6,7 +6,7 @@
     "The GM teleport places (docs/PLAYTEST.md §7 \"Teleport places\"), merged after the world manifest places (the textzonename.txt areas and beach-south): a place here replaces a manifest place of the same name and takes over the names in its aliases (beach-south). The town spawn (jangan, spawn) comes from towns.json and is not listed here.",
     "Every wave that adds somewhere worth visiting adds it here (docs/BACKLOG.md). A row: { name (kebab-case, at most 32 characters), group (town | fields | coast | bosses | other), x, y (the height hint: tp stands on the open surface nearest it), z (glTF metres), aliases? }. At start the server checks each row by the tp rule (open ground in the town spawn's walkable component within 10 m, inside the world bounds) and logs and skips a row that fails.",
     "Rows with a snap are computed on the real export by the places tool (pnpm --filter @sro/server places [--write]; apps/server/src/cli/places.ts). near: the nearest open point to a hand-picked spot. area: inside a zones.json area by the GM where name, 16 m inside the world bounds, dry (not under a retail water plane); with shore, its lowest open point at least aboveSeaM over the sea level (the beach, not the cliff behind it), else the nearest open point to its mean centre. nest: the nearest open point to a nest centre. Open = standing by the placement rule, an open terrain cell, 1.5 m of standing ground around. Rows without a snap are hand-authored; the tool only checks them.",
-    "Coast: the in-bounds coast a player can stand on. Tiger Beach, Tiger Cape, Tomb Ridge Beach, River Mouth, South-East Cape, Jangan Bay and Canyon Beach lie wholly in the sea ring outside the walkable bounds of jangan-fields, so they have no place. east-shelf-beach and western-strait are the in-bounds strip the HUD names after them: a cliff and a ridge over the water. The Western China side across the strait and the land bridge toward Donwhang are open sea now (content/coast/coast.json drown, docs/COAST.md §4.1), so no place lies there.",
+    "Coast: a shore point of every beach area (docs/COAST.md §9.5: since the beach passes the walkable bounds reach the sea, so every beach is reachable on foot from Jangan). The Western China side across the strait and the land bridge toward Donwhang are open sea now (content/coast/coast.json drown, docs/COAST.md §4.1), so no place lies there.",
     "north-gate: Jangan's outer wall has no north opening; the north gate is the palace's big gate at the north end of the plaza avenue, where Soldier Choiyoung [Teleport] stands guard. Bosses: tiger-camp-1 .. 11 are Tiger Girl's eleven camps (nests.json uniqueGroup) in nest id order."
   ],
   "places": [
@@ -229,67 +229,132 @@
     {
       "name": "east-shelf-beach",
       "group": "coast",
-      "x": 1328,
-      "z": 772,
+      "x": 1448,
+      "z": 364,
       "snap": {
         "area": "East Shelf Beach",
         "aboveSeaM": 0.5,
         "shore": true
       },
-      "y": 34.97,
-      "source": "area 'East Shelf Beach' (16 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (30.0 m), 440 m from its mean centre"
+      "y": 5.5,
+      "source": "area 'East Shelf Beach' (16 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 90 m from its mean centre"
     },
     {
       "name": "tomb-east-beach",
       "group": "coast",
-      "x": 1268,
-      "z": -1040,
+      "x": 1408,
+      "z": -784,
       "snap": {
         "area": "Tomb East Beach",
         "aboveSeaM": 0.5,
         "shore": true
       },
-      "y": 5.52,
-      "source": "area 'Tomb East Beach' (8 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 382 m from its mean centre"
+      "y": 5.6,
+      "source": "area 'Tomb East Beach' (8 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.6 m), 129 m from its mean centre"
     },
     {
       "name": "qin-shi-tomb-beach",
       "group": "coast",
-      "x": 1196,
-      "z": -1132,
+      "x": 1088,
+      "z": -1372,
       "snap": {
         "area": "Qin-Shi Tomb Beach",
         "aboveSeaM": 0.5,
         "shore": true
       },
-      "y": 5.59,
-      "source": "area 'Qin-Shi Tomb Beach' (16 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.6 m), 299 m from its mean centre"
+      "y": 5.5,
+      "source": "area 'Qin-Shi Tomb Beach' (16 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 47 m from its mean centre"
     },
     {
       "name": "jangan-bay-shore",
       "group": "coast",
-      "x": 544,
-      "z": -1136,
+      "x": 556,
+      "z": -1272,
       "snap": {
         "area": "Jangan Bay Shore",
         "aboveSeaM": 0.5,
         "shore": true
       },
-      "y": 5.64,
-      "source": "area 'Jangan Bay Shore' (2 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.6 m), 218 m from its mean centre"
+      "y": 5.53,
+      "source": "area 'Jangan Bay Shore' (2 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 105 m from its mean centre"
     },
     {
       "name": "western-strait",
       "group": "coast",
-      "x": -2260,
-      "z": 320,
+      "x": -2524,
+      "z": 756,
       "snap": {
         "area": "Western Strait",
         "aboveSeaM": 0.5,
         "shore": true
       },
-      "y": 113.55,
-      "source": "area 'Western Strait' (11 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (108.6 m), 492 m from its mean centre"
+      "y": 5.51,
+      "source": "area 'Western Strait' (11 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 35 m from its mean centre"
+    },
+    {
+      "name": "tiger-beach",
+      "group": "coast",
+      "x": -2032,
+      "z": 1696,
+      "snap": {
+        "area": "Tiger Beach",
+        "aboveSeaM": 0.5,
+        "shore": true
+      },
+      "y": 5.56,
+      "source": "area 'Tiger Beach' (25 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.6 m), 49 m from its mean centre"
+    },
+    {
+      "name": "tiger-cape",
+      "group": "coast",
+      "x": -2644,
+      "z": 1216,
+      "snap": {
+        "area": "Tiger Cape",
+        "aboveSeaM": 0.5,
+        "shore": true
+      },
+      "y": 5.55,
+      "source": "area 'Tiger Cape' (3 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 61 m from its mean centre"
+    },
+    {
+      "name": "tomb-ridge-beach",
+      "group": "coast",
+      "x": -828,
+      "z": 1700,
+      "snap": {
+        "area": "Tomb Ridge Beach",
+        "aboveSeaM": 0.5,
+        "shore": true
+      },
+      "y": 5.51,
+      "source": "area 'Tomb Ridge Beach' (9 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 77 m from its mean centre"
+    },
+    {
+      "name": "river-mouth",
+      "group": "coast",
+      "x": -572,
+      "z": 1464,
+      "snap": {
+        "area": "River Mouth",
+        "aboveSeaM": 0.5,
+        "shore": true
+      },
+      "y": 5.51,
+      "source": "area 'River Mouth' (2 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 117 m from its mean centre"
+    },
+    {
+      "name": "south-east-cape",
+      "group": "coast",
+      "x": 1440,
+      "z": 1400,
+      "snap": {
+        "area": "South-East Cape",
+        "aboveSeaM": 0.5,
+        "shore": true
+      },
+      "y": 5.53,
+      "source": "area 'South-East Cape' (6 regions): its shore, the lowest open point in it 0.5 m or more above the sea level (0.5 m), 104 m from its mean centre"
     },
     {
       "name": "tiger-camp-1",

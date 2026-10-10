@@ -21,7 +21,7 @@
  */
 import {
   assembleRegionGrid, MAPM_BLOCK_TILES, MAPM_BLOCK_VERTICES, MAPM_BLOCKS, MAPM_TEXTURE_ID_MASK, MAPM_WATER, MAPM_WATER_NONE,
-  type MapMBlock, type MapMFile, type RegionGrid,
+  type MapMBlock, type MapMFile, type NvmFile, type RegionGrid,
 } from '@sro/formats'
 import { BANK_FILL_M } from './banks.ts'
 import type { EmittedRegion } from './census.ts'
@@ -29,7 +29,7 @@ import type { CoastConfig } from './config.ts'
 import { drownedRegions } from './drown.ts'
 import type { SeaMasks } from './field.ts'
 import { CELLS_PER_REGION, latticeIndex } from './lattice.ts'
-import { NAV_KNEE_DEEP_M, type NavRegionEdit } from './navgen.ts'
+import { NAV_KNEE_DEEP_M, syntheticRegionNav, type NavEditStats, type NavRegionEdit } from './navgen.ts'
 import type { CoastPaint } from './paint.ts'
 import type { CoastResult } from './pass.ts'
 import { regionKey, type RetailLattice, type RetailRegion } from './retail.ts'
@@ -142,6 +142,17 @@ export class CoastSource {
       removedWater: ov?.removedWater ?? new Set(),
       dropObject: ring ? (lx, lz) => this.movedAt(x + lx / 1920, z + lz / 1920) : undefined,
     }
+  }
+
+  /**
+   * A synthetic region's own navmesh (./navgen.ts syntheticRegionNav, docs/COAST.md §9.5): its dry land by the ring
+   * rule. null for a region the coast does not emit as synthetic, or open sea.
+   */
+  syntheticNav(x: number, z: number, retail: RetailRegion | null): { nvm: NvmFile; stats: NavEditStats } | null {
+    const ov = this.overlay(x, z, retail)
+    if (!ov?.terrain.synthetic) return null
+    const e = this.navEdit(x, z, retail)
+    return e ? syntheticRegionNav(e, ov.heights ?? ov.terrain.grid.heights) : null
   }
 
   /** Region (x, z)'s height-patch sea vertices more than knee-deep (./navgen.ts `deep`, C7), or null when none. */

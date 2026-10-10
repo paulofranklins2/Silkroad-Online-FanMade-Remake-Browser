@@ -340,7 +340,190 @@
       }
     }
   ],
-  "drop": [],
+  "drop": [
+    {
+      "region": 23468,
+      "uid": 41986,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_01.bsr",
+      "from": {
+        "position": [
+          830.448755,
+          49.593259,
+          988.780908
+        ],
+        "yaw": -2.9845128059387207
+      }
+    },
+    {
+      "region": 23724,
+      "uid": 16390,
+      "source": "res\\nature\\common\\grass\\grs_weed09.bsr",
+      "from": {
+        "position": [
+          789.832547,
+          30.648138,
+          877.249194
+        ],
+        "yaw": 0
+      }
+    },
+    {
+      "region": 23724,
+      "uid": 16394,
+      "source": "res\\nature\\common\\grass\\grs_weed09.bsr",
+      "from": {
+        "position": [
+          789.748563,
+          33.441156,
+          889.882849
+        ],
+        "yaw": 0
+      }
+    },
+    {
+      "region": 23724,
+      "uid": 17411,
+      "source": "res\\nature\\common\\tree\\cj_graveyard_tree01.bsr",
+      "from": {
+        "position": [
+          811.261725,
+          35.768359,
+          888.225549
+        ],
+        "yaw": -1.0995571613311768
+      }
+    },
+    {
+      "region": 23964,
+      "uid": 45059,
+      "source": "res\\nature\\common\\grass\\grs_weed09_1.bsr",
+      "from": {
+        "position": [
+          -2158.364636,
+          36.772095,
+          604.327234
+        ],
+        "yaw": -7.696903705596924
+      }
+    },
+    {
+      "region": 23981,
+      "uid": 46081,
+      "source": "res\\nature\\common\\tree\\cj_graveyard_tree01.bsr",
+      "from": {
+        "position": [
+          1135.386316,
+          42.303479,
+          597.383118
+        ],
+        "yaw": -10.524337768554688
+      }
+    },
+    {
+      "region": 23982,
+      "uid": 24578,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1180.224896,
+          42.434778,
+          643.36261
+        ],
+        "yaw": 4.39823055267334
+      }
+    },
+    {
+      "region": 23982,
+      "uid": 25601,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_01.bsr",
+      "from": {
+        "position": [
+          1188.169388,
+          43.528085,
+          652.068726
+        ],
+        "yaw": 4.555310249328613
+      }
+    },
+    {
+      "region": 23982,
+      "uid": 40961,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1175.830403,
+          39.512415,
+          606.518884
+        ],
+        "yaw": 4.7123894691467285
+      }
+    },
+    {
+      "region": 24238,
+      "uid": 9217,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_01.bsr",
+      "from": {
+        "position": [
+          1189.997003,
+          43.785471,
+          514.345123
+        ],
+        "yaw": 4.555310249328613
+      }
+    },
+    {
+      "region": 25006,
+      "uid": 24578,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1165.463361,
+          29.255936,
+          -105.933105
+        ],
+        "yaw": 4.241150856018066
+      }
+    },
+    {
+      "region": 25006,
+      "uid": 32771,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1170.359392,
+          26.457547,
+          -159.599988
+        ],
+        "yaw": 4.4182963371276855
+      }
+    },
+    {
+      "region": 25006,
+      "uid": 40962,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1177.753833,
+          41.334268,
+          -163.023096
+        ],
+        "yaw": 3.9269914627075195
+      }
+    },
+    {
+      "region": 25262,
+      "uid": 1025,
+      "source": "res\\nature\\common\\cliff\\stone_cliff01_02.bsr",
+      "from": {
+        "position": [
+          1193.826038,
+          42.473978,
+          -213.301634
+        ],
+        "yaw": 4.084071159362793
+      }
+    }
+  ],
   "add": [
     {
       "id": "ed-1",

@@ -139,6 +139,12 @@ export interface WorldPreset {
    * metres) and stream.playable. The regions outside it are scenery. Default: none (bounds = the union of the regions).
    */
   playable?: RegionRect
+  /**
+   * The walkable rectangle (region units, inclusive) when it is larger than `playable`: written as manifest.bounds
+   * (the server's clamp) while `playable` stays the coast's frozen set and stream.playable. jangan-fields: the whole
+   * island, so the beaches beyond the old bounds are walkable and the shore is the limit (docs/COAST.md §9.5).
+   */
+  walkable?: RegionRect
   /** Write the streaming files and manifest.stream (docs/FIELDS.md §3.9). */
   stream?: boolean
   /** Write manifest.places (GM tp points per client zone name, ./places.ts). */
@@ -214,7 +220,7 @@ export const WORLD_PRESETS: Readonly<Record<string, WorldPreset>> = {
    */
   'jangan-fields': {
     x0: 155, x1: 175, z0: 89, z1: 103, centre: { x: 168, z: 97 }, spawnTeleport: 'GATE_CH',
-    playable: { x0: 156, x1: 174, z0: 90, z1: 102 }, stream: true, places: true, displayName: 'Jangan', coast: JANGAN_COAST_CONFIG,
+    playable: { x0: 156, x1: 174, z0: 90, z1: 102 }, walkable: { x0: 153, x1: 176, z0: 86, z1: 105 }, stream: true, places: true, displayName: 'Jangan', coast: JANGAN_COAST_CONFIG,
     environmentOverrides: JANGAN_ENV_OVERRIDES, town: JANGAN_TOWN, edits: JANGAN_EDITS, trees: TREES_SWAP_FILE,
     remasterModels: JANGAN_REMASTER_MODELS,
   },
@@ -279,6 +285,8 @@ export interface ConvertWorldOptions {
   maxModels?: number
   /** WorldPreset.playable: manifest.bounds and stream.playable (region units, inclusive). */
   playable?: RegionRect
+  /** WorldPreset.walkable: manifest.bounds instead of `playable`'s. */
+  walkable?: RegionRect
   /** WorldPreset.stream: nav/<x>_<z>.bin, nav-objects.bin, worldmap.png and manifest.stream. */
   stream?: boolean
   /** WorldPreset.places: manifest.places (needs nav.bin and a spawn). */
@@ -375,7 +383,8 @@ export async function convertWorld(opts: ConvertWorldOptions): Promise<ConvertWo
     : opts.edits
       ? await createWorldEdits({
         dir: isAbsolute(opts.edits) ? opts.edits : resolve(REPO_ROOT, opts.edits), world: opts.name, outDir, origin, regions: opts.regions, warnings, log,
-        ...(playableRect ? { playable: playableRect } : {}),
+        // the Walkable brush's limit is the walkable rectangle (the beaches beyond the frozen set, docs/COAST.md §9.5)
+        ...(playableRect ? { playable: opts.walkable ?? playableRect } : {}),
         coastField: () => {
           const c = coastPass?.manifestCoast?.()
           return c ? { file: join(outDir, ...c.field.file.split('/')), field: c.field } : null
@@ -571,16 +580,21 @@ export async function convertWorld(opts: ConvertWorldOptions): Promise<ConvertWo
   const navInputs: Array<{ id: number; nvm: NvmFile }> = []
   if (opts.navmesh !== false) {
     for (const region of regions) {
-      // a synthetic region has no navigation (docs/COAST.md §9.1): the server's clamp keeps everyone inside the bounds
-      if (region.synthetic) continue
-      const path = `navmesh/nv_${region.id.toString(16).padStart(4, '0')}.nvm`
-      if (!data.has(path)) {
+      // a synthetic region gets a navmesh of its own where it has dry land (docs/COAST.md §9.5); open sea has none
+      const path = region.synthetic ? `synthetic ${region.x}_${region.z}` : `navmesh/nv_${region.id.toString(16).padStart(4, '0')}.nvm`
+      if (!region.synthetic && !data.has(path)) {
         warnings.push(`${path}: missing`)
         continue
       }
       try {
-        let nvm = parseNvm(data.read(path))
-        const edit = coast?.source.navEdit(region.x, region.z, loadRetail(region.x, region.z))
+        let nvm: NvmFile
+        if (region.synthetic) {
+          const syn = coast?.source.syntheticNav(region.x, region.z, loadRetail(region.x, region.z))
+          if (!syn) continue
+          nvm = syn.nvm
+          coast!.noteNav(syn.stats)
+        } else nvm = parseNvm(data.read(path))
+        const edit = region.synthetic ? null : coast?.source.navEdit(region.x, region.z, loadRetail(region.x, region.z))
         if (coast && edit) {
           const edited = editRegionNav(nvm, edit)
           nvm = edited.nvm
@@ -673,7 +687,7 @@ export async function convertWorld(opts: ConvertWorldOptions): Promise<ConvertWo
   // --- streaming files, bounds and places (docs/FIELDS.md §3.9, §4.6) ----------------------------------------------
   t = performance.now()
   const playable = playableRect
-  const bounds = playable && rectBounds(playable, origin)
+  const bounds = playable && rectBounds(opts.walkable ?? playable, origin)
   let stream: WorldStream | undefined
   /** Stitches the world map and returns manifest.stream; called after the placement passes (C9's drops, ./coast). */
   let finishStream: (() => WorldStream) | null = null

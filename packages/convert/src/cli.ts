@@ -279,6 +279,7 @@ switch (command) {
       remasterModels: objects ? preset.remasterModels : undefined,
       prePassCache: preset.edits && objects ? join(cfg.workDir, 'cache', 'world', name, 'prepass.json') : undefined,
       playable: preset.playable,
+      walkable: preset.walkable,
       stream: preset.stream,
       places: preset.places,
       displayName: preset.displayName,

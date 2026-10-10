@@ -62,7 +62,7 @@ import { closeRing, reachesBothWays } from '../world/coast/links.ts'
 import {
   coastMinimapOptions, coastMinimapTile, coastWorldMapFill, droppedTouches, type CoastMinimapTile,
 } from '../world/coast/minimap.ts'
-import { editRegionNav } from '../world/coast/navgen.ts'
+import { editRegionNav, syntheticNvmBase } from '../world/coast/navgen.ts'
 import { convertLockPath, withConvertLock } from '../world/convert-lock.ts'
 import {
   loadTownContent, parseRegionSpec, rectBounds, rectOf, regionOrigin, regionRange, TOWN_DRESSING_FILE, TOWN_FILE, WORLD_PRESETS,
@@ -210,7 +210,7 @@ export function comparableManifest(m: WorldManifest): WorldManifest {
 // --- the coast snapshot ----------------------------------------------------------------------------------------------
 
 export const COAST_SNAPSHOT_FORMAT = 'sro-coast-snapshot'
-export const COAST_SNAPSHOT_VERSION = 1
+export const COAST_SNAPSHOT_VERSION = 2
 
 /** A typed array as JSON. */
 type Packed = { $: string; b: string }
@@ -541,7 +541,8 @@ export async function convertRegions(opts: ConvertRegionsOptions): Promise<Conve
       ? await createWorldEdits({
         dir: repoPath(editsDir), world: name, outDir: stagingDir, origin, regions: exportRegions, warnings: editWarnings, log,
         prePass: { placements: pre.placements, models: pre.models, live: live.placements, liveReport: live.report },
-        ...(playableRect ? { playable: playableRect } : {}),
+        // the Walkable brush's limit is the walkable rectangle (the beaches beyond the frozen set, docs/COAST.md §9.5)
+        ...(playableRect ? { playable: preset.walkable ?? playableRect } : {}),
         // the coast field the nav step reads: the coast's own when it runs here (the nav step comes after it), else the
         // live export's (edit-independent; the snapshot replays it)
         coastField: () => {
@@ -786,16 +787,25 @@ export async function convertRegions(opts: ConvertRegionsOptions): Promise<Conve
   const navChanged = new Set<number>()
   const snapNav: Record<string, NvmDiff> = {}
   for (const region of regions) {
-    if (region.synthetic) continue
-    const path = `navmesh/nv_${region.id.toString(16).padStart(4, '0')}.nvm`
-    if (!data.has(path)) {
+    // a synthetic region gets a navmesh of its own where it has dry land (docs/COAST.md §9.5); open sea has none
+    const path = region.synthetic ? `synthetic ${region.x}_${region.z}` : `navmesh/nv_${region.id.toString(16).padStart(4, '0')}.nvm`
+    if (!region.synthetic && !data.has(path)) {
       navWarnings.push(`${path}: missing`)
       continue
     }
     try {
-      const retail = parseNvm(data.read(path))
+      const retail = region.synthetic ? syntheticNvmBase() : parseNvm(data.read(path))
       let nvm = retail
-      if (coast) {
+      if (region.synthetic) {
+        if (coast) {
+          const syn = coast.source.syntheticNav(region.x, region.z, loadRetail(region.x, region.z))
+          if (!syn) continue
+          nvm = syn.nvm
+          coast.noteNav(syn.stats)
+          snapNav[region.id] = diffNvm(nvm, retail)
+        } else if (snap?.nav[region.id]) nvm = applyNvmDiff(retail, snap.nav[region.id]!)
+        else continue
+      } else if (coast) {
         const edit = coast.source.navEdit(region.x, region.z, loadRetail(region.x, region.z))
         if (edit) {
           const edited = editRegionNav(nvm, edit)
@@ -1218,7 +1228,7 @@ export async function convertRegions(opts: ConvertRegionsOptions): Promise<Conve
     ...(nav ? { nav } : {}),
     ...(spawn ? { spawn } : {}),
     ...(preset.displayName ? { displayName: preset.displayName } : {}),
-    ...(playableRect ? { bounds: rectBounds(playableRect, origin) } : {}),
+    ...(playableRect ? { bounds: rectBounds(preset.walkable ?? playableRect, origin) } : {}),
     ...(stream ? { stream } : {}),
     ...(places ? { places } : {}),
     ...(passed.coast ? { coast: passed.coast } : {}),

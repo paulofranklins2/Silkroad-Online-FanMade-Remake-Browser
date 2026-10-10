@@ -5,10 +5,12 @@
  * has no step or slope limit. So the coast rewrites a region's navigation in place:
  * - heights: the coast lattice (the same file units as the terrain, so all four copies agree: terrain/*.bin, the debug
  *   navmesh/*.bin, nav/<x>_<z>.bin and nav.bin);
- * - ring regions outside the bounds: a tile whose ground moved stays open only if it was open in retail, all four
- *   corners are at most 0.4 m under the sea level (knee-deep), none is more than 12 m above it, and its slope is at
- *   most 0.7; the rule never opens a retail-closed tile, so the beaches outside the bounds are open and the lowered
- *   flanks above them close (the clamp keeps players inside the bounds either way);
+ * - ring regions outside the frozen rectangle: a tile whose ground moved is open exactly when all four corners are at
+ *   most 0.4 m under the sea level (knee-deep) and its slope is at most 0.7 (a retail-closed tile on moved ground opens
+ *   too). Since the beaches pass (2026-10-10, docs/COAST.md §9.5) the walkable bounds reach the sea, so the beaches and
+ *   the lowered flanks behind them are walkable and the shoreline is the limit; the old 12 m beach band is gone;
+ * - synthetic regions (land beyond the retail export: Tiger Beach, the Western Strait, the tomb beach) get a navmesh
+ *   of their own (`syntheticRegionNav`): one open cell, every tile by the ring rule;
  * - `openTiles` (coast.json, inside the bounds): retail-closed tiles there open (S1's link to town, G1);
  * - inside the bounds, a height patch's sea more than knee-deep closes (`deep`, C7): S1's sea and the S2 river's
  *   former dry channel (./banks.ts) are not walkable;
@@ -22,8 +24,6 @@ import { tileInRects } from './links.ts'
 
 /** Knee-deep: open down to this far under the sea level (m), §9.1 / C7. */
 export const NAV_KNEE_DEEP_M = 0.4
-/** The beach band: open up to this far above the sea level (m). */
-export const NAV_BEACH_BAND_M = 12
 /** Steepest open tile (rise over run across a tile's corners), §9.1. */
 export const NAV_MAX_SLOPE = 0.7
 /** Tile edge (m). */
@@ -39,6 +39,8 @@ export interface NavRegionEdit {
   moved: Uint8Array | null
   /** The region lies outside the playable rectangle (the ring rule applies). */
   ring: boolean
+  /** Apply the ring rule to every tile, moved or not (a synthetic region's own navmesh). */
+  allTiles?: boolean
   seaLevelM: number
   /** coast.json openTiles (region units), applied inside the bounds. */
   openTiles: ReadonlyArray<Rect>
@@ -81,20 +83,26 @@ export function editRegionNav(nvm: NvmFile, e: NavRegionEdit): { nvm: NvmFile; s
   }
   const isOpen = (t: number) => tileCells[t]! >= 0 && tileCells[t]! < nvm.openCellCount
 
-  if (e.ring && e.moved) {
-    const SL10 = e.seaLevelM * 10
-    const lo = SL10 - NAV_KNEE_DEEP_M * 10
-    const hi = SL10 + NAV_BEACH_BAND_M * 10
+  if (e.ring && (e.moved || e.allTiles)) {
+    const lo = e.seaLevelM * 10 - NAV_KNEE_DEEP_M * 10
+    const retailOpen = Uint8Array.from(nvm.tileCells, c => (c >= 0 && c < nvm.openCellCount ? 1 : 0))
     for (let tz = 0; tz < NVM_TILES; tz++) {
       for (let tx = 0; tx < NVM_TILES; tx++) {
         const t = tz * NVM_TILES + tx
-        if (!isOpen(t)) continue
         const v = [tz * G + tx, tz * G + tx + 1, (tz + 1) * G + tx, (tz + 1) * G + tx + 1]
-        if (!v.some(k => e.moved![k])) continue
+        if (!e.allTiles && !v.some(k => e.moved![k])) continue
         const h = v.map(k => heights[k]!)
         const rise = Math.max(Math.abs(h[0]! - h[1]!), Math.abs(h[2]! - h[3]!), Math.abs(h[0]! - h[2]!), Math.abs(h[1]! - h[3]!)) / 10
-        const ok = h.every(y => y >= lo && y <= hi) && rise / TILE_M <= NAV_MAX_SLOPE
-        if (!ok) close(t)
+        const ok = h.every(y => y >= lo) && rise / TILE_M <= NAV_MAX_SLOPE
+        if (!ok) {
+          if (isOpen(t)) close(t)
+        } else if (!retailOpen[t]) {
+          const cell = openNeighbourCell(tileCells, nvm.openCellCount, tx, tz)
+          if (cell < 0) continue
+          tileCells[t] = cell
+          tileFlags[t] = tileFlags[t]! & ~NVM_TILE_BLOCKED
+          stats.opened++
+        }
       }
     }
   }
@@ -195,4 +203,26 @@ export function openTilesInNavRegion(r: { rx: number; rz: number; openCellCount:
     }
   }
   return n
+}
+
+/**
+ * A synthetic region's navmesh (docs/COAST.md §9.5): the coast's heights (file units, 97 x 97), one open cell over
+ * the whole region and every tile judged by the ring rule (knee-deep and up, slope at most 0.7). null when no tile
+ * stays open (open sea): the region then has no navigation, as before.
+ */
+export function syntheticRegionNav(e: NavRegionEdit, heights: Float32Array): { nvm: NvmFile; stats: NavEditStats } | null {
+  const base = { ...syntheticNvmBase(), heights: Float32Array.from(heights) }
+  const out = editRegionNav(base, { ...e, heights: base.heights, ring: true, allTiles: true, openTiles: [], deep: null, dropObject: undefined })
+  const open = out.nvm.tileCells.some(c => c >= 0 && c < out.nvm.openCellCount)
+  return open ? out : null
+}
+
+/** The template of a synthetic region's navmesh: one open cell, every tile open, flat at 0 (no planes, no objects). */
+export function syntheticNvmBase(): NvmFile {
+  const T = NVM_TILES * NVM_TILES
+  return {
+    signature: 'JMXVNVM 1000', objects: [], cells: [{ minX: 0, minZ: 0, maxX: 1920, maxZ: 1920, objects: [] }], openCellCount: 1,
+    globalEdges: [], internalEdges: [], tileRecordSize: 8, tileCells: new Int32Array(T), tileFlags: new Uint16Array(T),
+    tileTextures: new Uint16Array(T), heights: new Float32Array((NVM_TILES + 1) * (NVM_TILES + 1)), planeTypes: new Uint8Array(36), planeHeights: new Float32Array(36),
+  }
 }
