@@ -12,6 +12,7 @@ import {
   CreateSphere,
   Mesh,
   RawTexture,
+  RawTexture3D,
   ShaderLanguage,
   ShaderMaterial,
   ShaderStore,
@@ -28,6 +29,7 @@ import {
   skyVertexGLSL,
   skyVertexWGSL,
 } from './sky-shaders.ts'
+import { makeCloudVolume } from './cloud-volume.ts'
 import type { SkyQuality } from './types.ts'
 
 let registered = false
@@ -45,7 +47,9 @@ export function skyDomeDefines(q: Readonly<SkyQuality>): string[] {
   const d: string[] = []
   if (q.clouds.kind === 'retail') d.push('#define SKY_CLOUDS_RETAIL')
   else d.push('#define SKY_CLOUDS_CUMULUS')
-  d.push(`#define SKY_LIGHT_TAPS ${Math.min(3, Math.max(1, q.clouds.lightTaps))}`)
+  d.push(`#define SKY_LIGHT_TAPS ${Math.min(4, Math.max(1, q.clouds.lightTaps))}`)
+  const vol = q.clouds.kind === 'cumulus' ? Math.round(q.clouds.volumeSteps ?? 0) : 0
+  if (vol > 0) d.push('#define SKY_CLOUDS_VOLUME', `#define SKY_VOL_STEPS ${Math.min(64, vol)}`)
   if (q.clouds.cirrus) d.push('#define SKY_CIRRUS')
   if (q.clouds.detailOctave) d.push('#define SKY_DETAIL')
   if (q.stars.twinkle) d.push('#define SKY_TWINKLE')
@@ -61,6 +65,8 @@ export class SkyDome {
   private readonly textures = new Map<string, BaseTexture>()
   private readonly fallbacks: BaseTexture[] = []
   private defines: string
+  /** The volumetric clouds' 3D noise, made on the first volumetric preset (cloud-volume.ts). */
+  private volume: RawTexture3D | null = null
 
   constructor(readonly scene: Scene, radiusM: number, quality: Readonly<SkyQuality>) {
     registerShaders()
@@ -77,7 +83,14 @@ export class SkyDome {
     const clear = RawTexture.CreateRGBATexture(new Uint8Array([0, 0, 0, 0]), 1, 1, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE)
     clear.name = 'skyClear'
     this.fallbacks.push(black, clear)
-    for (const n of SKY_DOME_SAMPLERS) this.textures.set(n, n === 'moonTex' ? clear : black)
+    // the 3D slot's fallback (WebGPU; the test NullEngine has no 3D textures and never compiles the WGSL)
+    const flat3 = scene.getEngine().isWebGPU
+      ? new RawTexture3D(new Uint8Array([150, 150, 150, 150]), 1, 1, 1, Constants.TEXTUREFORMAT_RGBA, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE)
+      : black
+    flat3.name = flat3 === black ? black.name : 'skyFlat3D'
+    this.fallbacks.push(flat3)
+    for (const n of SKY_DOME_SAMPLERS) this.textures.set(n, n === 'moonTex' ? clear : n === 'cloudVolume' ? flat3 : black)
+    this.ensureVolume(quality)
     this.defines = skyDomeDefines(quality).join('\n')
     this.material = this.makeMaterial(quality)
     mesh.material = this.material
@@ -101,8 +114,16 @@ export class SkyDome {
     return mat
   }
 
+  /** Builds the 3D noise the first time a volumetric preset is used (WebGPU only). */
+  private ensureVolume(q: Readonly<SkyQuality>): void {
+    if (this.volume || !this.scene.getEngine().isWebGPU || !((q.clouds.volumeSteps ?? 0) > 0)) return
+    this.volume = makeCloudVolume(this.scene)
+    this.textures.set('cloudVolume', this.volume)
+  }
+
   /** Rebuilds the material when the preset's tiers changed. */
   setQuality(q: Readonly<SkyQuality>): void {
+    this.ensureVolume(q)
     const d = skyDomeDefines(q).join('\n')
     if (d === this.defines) return
     this.defines = d
@@ -114,7 +135,7 @@ export class SkyDome {
 
   /** A texture slot (null: back to the fallback). The caller keeps ownership of the texture. */
   setTexture(name: string, tex: BaseTexture | null): void {
-    const t = tex ?? (name === 'moonTex' ? this.fallbacks[1]! : this.fallbacks[0]!)
+    const t = tex ?? (name === 'moonTex' ? this.fallbacks[1]! : name === 'cloudVolume' ? this.fallbacks[2]! : this.fallbacks[0]!)
     this.textures.set(name, t)
     this.material.setTexture(name, t)
   }
@@ -126,6 +147,7 @@ export class SkyDome {
   dispose(): void {
     this.material.dispose(true, false)
     this.mesh.dispose()
-    for (const t of this.fallbacks) t.dispose()
+    for (const t of new Set(this.fallbacks)) t.dispose()
+    this.volume?.dispose()
   }
 }

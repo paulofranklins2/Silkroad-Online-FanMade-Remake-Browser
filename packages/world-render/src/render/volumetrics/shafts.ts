@@ -434,7 +434,9 @@ export class LightShafts {
   /** Per frame (RenderPost.update): the look and the direction to the key light. */
   setFrame(look: ShaftLook, sky: Readonly<SkyState>): void {
     this.look = look
-    const d = sky.keyLight.dir
+    // The beams' phase and screen origin follow the visible disc (Overall Pass item 9): the sun's own direction, not
+    // the key light's (that one keeps ≥ 6° of elevation for the shadows), the moon's once the key light is the moon.
+    const d = sky.sunElevationDeg > -2.5 ? sky.sunDir : sky.moonDir
     const l = Math.hypot(d.x, d.y, d.z) || 1
     this.sunDir.set(d.x / l, d.y / l, d.z / l)
   }

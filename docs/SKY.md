@@ -712,3 +712,23 @@ Each lane lists its owned files, hook points, tests and the user-visible checks.
 - **Ultra** needs one owner for the new `WorldQuality` value across the sky, lighting and texture lanes.
 - **Weather lane names** (`SkyWeather`, `World.setWeather`) are proposed here. If the weather spec names them differently, the integrator keeps one and aliases the other.
 - **Players on a frozen clock.** A GM `time freeze` persists across restarts by design. `time reset` clears it.
+
+## 13. Overall Pass (2026-10): visible sun and moon, volumetric clouds
+
+- **Sun and moon** (item 9): the sun disc is 0.75° (readable from a third-person camera) with a two-lobe halo
+  (`SUN_HALO_CORE` / `SUN_HALO_WIDE`, wider near the horizon); the moon keeps its retail phase texture and gains a soft
+  glow (× its illuminated fraction). The light shafts (`render/volumetrics/shafts.ts`) take their phase and screen
+  origin from the true sun (or moon) direction, so the beams start at the visible disc; the shadow march still uses
+  the key light's CSM (≥ 6° elevation).
+- **Volumetric clouds** (item 10, WebGPU, `SKY_CLOUDS_VOLUME`): raymarched in the dome between a curved base and top
+  (1.5 → 3.1 km; a storm lowers the base to 0.9 km and stacks to ~4.5 km, churning). Coverage per column comes from
+  the 2D cloud-noise weather map (so the CPU's sun occlusion and the ground cloud shadows still line up); the billows
+  from a 48³ Perlin–Worley volume (`sky/cloud-volume.ts`, built a few slices per frame at start). Light: a short march
+  toward the sun/moon (Beer + powder, dual-lobe phase, multi-scatter floor), sky ambient brighter at the tops, the
+  lightning glowing inside them toward the bolt (`SkyWeather.flashX/Z`). Rain shafts hang under raining clouds near
+  the horizon; the snow season's sky is a bright, flat grey (`SkyWeather.snow`). All inputs come from the blended
+  WeatherFrame, so weather changes are smooth.
+- **Tiers** (`SkyQuality.clouds.volumeSteps`): Low retail plane, Medium 2.5D cumulus, High 20 steps × 2 light taps,
+  Ultra 32 × 3 + detail octave. Empty space exits after the 2D taps. Dome GPU cost, 1920×1080, camera looking up
+  (sky fills the screen), AMD iGPU dev PC: Low 0.6 ms, Medium 0.9, High 1.4–1.6, Ultra 2.1–3.3 (overcast worst).
+  With the usual MMO camera the sky covers a third of the screen or less.

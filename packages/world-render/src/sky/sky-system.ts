@@ -137,7 +137,16 @@ const GRADE_FOG_TWILIGHT = 0.3
  */
 const STORM_FOG_DIM = 0.5
 const DEG = Math.PI / 180
-const SUN_RADIUS = 0.27 * 1.6 * DEG
+/** Overall Pass item 9: a readable disc from a third-person camera (2.8× the real 0.27°), with a halo. */
+const SUN_RADIUS = 0.75 * DEG
+const SUN_HALO_CORE = 0.35
+const SUN_HALO_WIDE = 0.035
+/** The moon's glow (× its illuminated fraction; ÷ the exposure so it reads the same on any night). */
+const MOON_GLOW = 0.6
+/** Volumetric cloud layer (sky-shaders.ts SKY_CLOUDS_VOLUME): base and depth (km), extinction per km. */
+const VOL_BASE_KM = 1.5
+const VOL_DEPTH_KM = 1.6
+const VOL_SIGMA = 14
 const MOON_RADIUS = 2.2 * DEG
 const SUN_DISC = 40
 /** The airglow floor shows the retail midnight SkyTop (× 0.6) at this exposure (brighter on darker nights). */
@@ -1006,6 +1015,17 @@ export class SkySystem {
     moonFrame(mv, sv, s.moon.age, this.moonU, this.moonV)
     u.skyMoonU!.set(this.moonU[0], this.moonU[1], this.moonU[2], 0)
     u.skyMoonV!.set(this.moonV[0], this.moonV[1], this.moonV[2], 0)
+    // Overall Pass items 9/10: the volumetric layer (lower, taller and churning in a storm), the lightning's bearing,
+    // the snow sky, the sun's halo and the moon's glow (both in the sky's radiance units, before the exposure).
+    const dark = Math.max(0, Math.min(1, w.cloudDarkness))
+    const storm = Math.max(0, Math.min(1, Math.max(dark, w.precipitation) * smoothstep(0.5, 0.9, w.cloudCover)))
+    const base = VOL_BASE_KM - 0.6 * storm
+    u.skyVol0!.set(base, base + VOL_DEPTH_KM + 1.4 * storm, VOL_SIGMA, storm * smoothstep(0.3, 0.9, dark))
+    u.skyVol1!.set(w.flashX ?? 0, w.flashZ ?? 0, Math.max(0, Math.min(1, w.snow ?? 0)), 1 + 0.25 * Math.max(0, Math.min(1, w.cloudCover)))
+    const sunUp = smoothstep(-3 * DEG, 1 * DEG, this.sunEl)
+    const low = 1 + 1.5 * (1 - smoothstep(2 * DEG, 25 * DEG, this.sunEl))
+    const moonGlow = this.moonVisible ? (MOON_GLOW / Math.max(1, s.exposure)) * s.moon.illum * smoothstep(-1 * DEG, 3 * DEG, this.moonEl) : 0
+    u.skyVol2!.set(SUN_HALO_CORE * sunUp, SUN_HALO_WIDE * sunUp * low, moonGlow, 0.85 * Math.max(0, Math.min(1, w.precipitation)))
   }
 
   // ---- both styles -------------------------------------------------------------------------------------------------

@@ -20,6 +20,9 @@ export function toSkyWeather(f: WeatherFrame): SkyWeather {
     wind: { x: f.windX * f.windMs, z: f.windZ * f.windMs },
     precipitation: Math.min(1, f.rain + 0.7 * (f.snow ?? 0)),
     flash: Math.min(1, f.flash / 3),
+    flashX: f.flashX,
+    flashZ: f.flashZ,
+    snow: clamp01(f.snow ?? 0),
   }
 }
 

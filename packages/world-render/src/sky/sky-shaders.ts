@@ -30,16 +30,23 @@
  *   skyNight       rgb airglow radiance (pre-exposure), a earthshine
  *   skyCam         xyz camera (glTF metres), w seconds
  *   skyMoonU/V     moon tangent frame (xyz), w unused
- * Samplers: skyView, moonView, cloudNoise, cloudRetail, moonTex.
+ *   skyVol0        volumetric layer: x base (km), y top (km), z extinction per km, w storm churn 0..1
+ *   skyVol1        xy flash bearing (unit xz, 0 = everywhere), z snow sky 0..1, w cloud ambient boost
+ *   skyVol2        x sun halo (core), y sun halo (wide), z moon glow, w rain-shaft strength
+ * Samplers: skyView, moonView, cloudNoise, cloudRetail, moonTex, cloudVolume (3D; SKY_CLOUDS_VOLUME only).
+ *
+ * Overall Pass items 9/10: the visible sun (disc + halo: where the shafts start) and the moon's glow; raymarched
+ * volumetric clouds (SKY_CLOUDS_VOLUME, SKY_VOL_STEPS march steps, SKY_LIGHT_TAPS light taps) over the 2D weather
+ * map, lit from inside by lightning; rain shafts under them; a bright grey snow sky. WGSL only (WebGPU only).
  */
 
 export const SKY_DOME_UNIFORMS = [
   'world', 'viewProjection',
   'skySun', 'skyMoon', 'skySunColor', 'skyParams', 'skyStarsX', 'skyStarsY', 'skyStarsZ',
   'skyCloud0', 'skyCloud1', 'skyCloudLight', 'skyCloudAmb', 'skyCloudDir', 'skyFog', 'skyGrade', 'skyNight',
-  'skyCam', 'skyMoonU', 'skyMoonV',
+  'skyCam', 'skyMoonU', 'skyMoonV', 'skyVol0', 'skyVol1', 'skyVol2',
 ]
-export const SKY_DOME_SAMPLERS = ['skyView', 'moonView', 'cloudNoise', 'cloudRetail', 'moonTex']
+export const SKY_DOME_SAMPLERS = ['skyView', 'moonView', 'cloudNoise', 'cloudRetail', 'moonTex', 'cloudVolume']
 
 /** Uniform names that are vec4 (everything but the two matrices). */
 export const SKY_DOME_VEC4 = SKY_DOME_UNIFORMS.slice(2)
@@ -72,6 +79,8 @@ var cloudRetail: texture_2d<f32>;
 var cloudRetailSampler: sampler;
 var moonTex: texture_2d<f32>;
 var moonTexSampler: sampler;
+var cloudVolume: texture_3d<f32>;
+var cloudVolumeSampler: sampler;
 ${UNIFORMS_WGSL}
 varying vDir: vec3f;
 
@@ -116,6 +125,52 @@ fn skyLum(c: vec3f) -> f32 {
   return dot(c, vec3f(0.2126, 0.7152, 0.0722));
 }
 
+#ifdef SKY_CLOUDS_VOLUME
+// Slant distance (km) along a ray from altitude c to the curved shell dH above it: s·dy + (s·hl)² / 2R = dH.
+fn skyVolSlant(dy: f32, hl: f32, dH: f32) -> f32 {
+  let a = hl * hl / (2.0 * SKY_EARTH_KM);
+  return 2.0 * dH / (dy + sqrt(max(dy * dy + 4.0 * a * dH, 1e-8)));
+}
+
+// Cloud density 0..1 at world xz (km) and altitude (km). The 2D weather map (cloud-noise R/A: the same columns the
+// CPU's sun occlusion and the ground cloud shadows read) says where; the 3D volume carves the billows; storms churn.
+// detail 1: Ultra's fine octave; −1: the light march's cheaper lookup (no domain warp, no fine octave). Empty space
+// returns after the 2D taps (most of a fair sky), so the 3D taps are paid only inside or next to a cloud.
+fn skyVolDensity(pxz: vec2f, alt: f32, detail: f32) -> f32 {
+  let hf = (alt - uniforms.skyVol0.x) / (uniforms.skyVol0.y - uniforms.skyVol0.x);
+  if (hf <= 0.0 || hf >= 1.0) { return 0.0; }
+  // a height gradient (flat-ish base, rounded top): each cloud domes and puffs instead of standing as a column
+  let prof = smoothstep(0.0, 0.14, hf) * (1.0 - smoothstep(0.35, 1.0, hf));
+  let hk = mix(0.55, 1.0, prof) * smoothstep(0.0, 0.05, prof);
+  let uvW = pxz / 9.0 + uniforms.skyCloud0.xy;
+  let cover = uniforms.skyCloud0.z;
+  let low = textureSampleLevel(cloudNoise, cloudNoiseSampler, uvW * 0.25, 0.0).a;
+  // the blended field is less extreme than the 2D map alone: a clear sky (0.1) still keeps a few cumulus; capped
+  // below 1 so even a storm deck keeps a lumpy, readable underside
+  let coverV = 0.22 + 0.78 * cover;
+  let cov = clamp(coverV + (low - 0.5) * 0.35 * (1.0 - coverV), 0.001, 0.9);
+  let shapeN = textureSampleLevel(cloudNoise, cloudNoiseSampler, uvW, 0.0).r;
+  if ((shapeN * 0.62 + 0.38) * hk <= 1.0 - cov) { return 0.0; }
+  let churn = uniforms.skyVol0.w;
+  let t = uniforms.skyCam.w;
+  var q = vec3f(uvW.x * 9.0, alt * 1.3, uvW.y * 9.0) * 0.75 + vec3f(0.0, -t * 0.002, 0.0);
+  if (detail > -0.5) {
+    let warp = textureSampleLevel(cloudVolume, cloudVolumeSampler, q * 0.31 + vec3f(t * 0.003 * churn, 0.0, 0.0), 0.0).a;
+    q = q + vec3f(warp - 0.5, (warp - 0.5) * 0.5, 0.5 - warp) * (0.2 + 0.7 * churn);
+  }
+  let n = textureSampleLevel(cloudVolume, cloudVolumeSampler, q, 0.0);
+  // the coverage threshold cuts a field that blends the 2D weather map with the 3D Perlin–Worley billows
+  let field = (shapeN * 0.62 + n.r * 0.38) * hk;
+  var d = clamp((field - (1.0 - cov)) / max(cov, 0.04), 0.0, 1.0);
+  d = clamp(d - (1.0 - n.g) * 0.4 * (1.0 - d), 0.0, 1.0);
+  if (detail > 0.5 && d > 0.0) {
+    let n2 = textureSampleLevel(cloudVolume, cloudVolumeSampler, q * 3.1, 0.0).b;
+    d = clamp(d - (1.0 - n2) * 0.22 * (1.0 - d), 0.0, 1.0);
+  }
+  return d;
+}
+#endif
+
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
   let dir = normalize(fragmentInputs.vDir);
@@ -144,6 +199,10 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   let inSun = smoothstep(sunR + sunFw, sunR - sunFw, sunA) * step(0.0, dot(dir, sunD));
   let muSun = sqrt(max(1.0 - (sunA / sunR) * (sunA / sunR), 0.0));
   rgb = rgb + uniforms.skySunColor.rgb * (uniforms.skySun.w * inSun * (1.0 - 0.6 * (1.0 - muSun * muSun)) * (1.0 - precip));
+  // its halo (forward scattering in the haze): a bright core and a wide soft glow; the clouds below cover it
+  let sunUp = smoothstep(-0.05, 0.02, dot(dir, sunD)) * smoothstep(-0.03, 0.01, dir.y);
+  let haloK = uniforms.skyVol2.x * exp(-sunA * sunA * 900.0) + uniforms.skyVol2.y * exp(-sunA * 7.0);
+  rgb = rgb + uniforms.skySunColor.rgb * (haloK * sunUp * (1.0 - precip));
 
   // 3. moon: the retail phase texture on its disc; the texture alpha masks the disc
   let moonR = uniforms.skyCloudAmb.a;
@@ -154,6 +213,10 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   let moonMask = inMoon * mt.a;
   let moonLit = mt.rgb * mt.rgb * vec3f(0.9, 0.95, 1.05) + vec3f(uniforms.skyNight.a);
   rgb = rgb + moonLit * (uniforms.skyMoon.w * moonMask * (1.0 - precip));
+  // a soft moonlit glow around the disc (skyVol2.z: brighter near the full moon)
+  let moonA = length(cross(dir, moonD));
+  let moonGlow = exp(-moonA * moonA * 400.0) * 0.6 + exp(-moonA * 9.0) * 0.4;
+  rgb = rgb + vec3f(0.62, 0.72, 0.95) * (uniforms.skyVol2.z * moonGlow * (1.0 - precip) * step(0.0, dot(dir, moonD)));
 
   // 5. clouds, over everything above (composited in radiance, before exposure)
   let cloudL = uniforms.skyCloudDir.xyz;
@@ -191,7 +254,73 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     cloudA = max(cloudA, a);
   }
 #endif
+#ifdef SKY_CLOUDS_VOLUME
+  {
+    // Volumetric layer: march the slab between the base and the top along the view ray (curved Earth), jittered per
+    // pixel; the light is a short march toward the sun (or the moon): Beer + powder, a dual-lobe phase, a multiple-
+    // scattering floor, the sky ambient (brighter at the tops), and the lightning inside it.
+    let camKm = uniforms.skyCam.xyz * 0.001;
+    let hl = length(vec2f(dir.x, dir.z));
+    let dH0 = max(uniforms.skyVol0.x - camKm.y, 0.05);
+    let dH1 = max(uniforms.skyVol0.y - camKm.y, dH0 + 0.05);
+    let s0 = skyVolSlant(dir.y, hl, dH0);
+    let s1 = skyVolSlant(dir.y, hl, dH1);
+    let sEnd = min(s1, s0 + 9.0);
+    let ds = max(sEnd - s0, 0.0) / f32(SKY_VOL_STEPS);
+    let jit = fract(52.9829189 * fract(dot(fragmentInputs.position.xy, vec2f(0.06711056, 0.00583715))));
+    let sigma = uniforms.skyVol0.z * uniforms.skyCloud0.w;
+    let phase = mix(skyHG(muC, 0.65), skyHG(muC, -0.15), 0.4) * 4.0 * SKY_PI;
+    let lightC = uniforms.skyCloudLight.rgb;
+    let flash = uniforms.skyCloudLight.a;
+    let fdir = uniforms.skyVol1.xy;
+    let hasDir = step(0.01, dot(fdir, fdir));
+    let ambBoost = uniforms.skyVol1.w;
+#ifdef SKY_DETAIL
+    let detail = 1.0;
+#else
+    let detail = 0.0;
+#endif
+    var T = 1.0;
+    var L = vec3f(0.0);
+    if (s0 < 90.0 && dir.y > -0.03) {
+      for (var i = 0; i < SKY_VOL_STEPS; i = i + 1) {
+        if (T < 0.03) { break; }
+        let s = s0 + (f32(i) + jit) * ds;
+        let pxz = camKm.xz + vec2f(dir.x, dir.z) * s;
+        let alt = camKm.y + dir.y * s + (s * hl) * (s * hl) / (2.0 * SKY_EARTH_KM);
+        let d = skyVolDensity(pxz, alt, detail);
+        if (d > 0.002) {
+          var od = 0.0;
+          for (var j = 1; j <= SKY_LIGHT_TAPS; j = j + 1) {
+            let tl = 0.06 * f32(j * j);
+            od = od + skyVolDensity(pxz + cloudL.xz * tl, alt + cloudL.y * tl, -1.0) * 0.06 * f32(2 * j - 1);
+          }
+          let lightT = max(exp(-od * sigma), exp(-od * sigma * 0.25) * 0.35);
+          let powder = 1.0 - exp(-d * sigma * 0.12);
+          let hf = clamp((alt - uniforms.skyVol0.x) / (uniforms.skyVol0.y - uniforms.skyVol0.x), 0.0, 1.0);
+          let amb = uniforms.skyCloudAmb.rgb * (mix(0.45, 1.15, hf) * ambBoost);
+          let toP = normalize(pxz - camKm.xz + vec2f(1e-5, 0.0));
+          let fGlow = flash * mix(1.0, 0.15 + 2.2 * exp(-10.0 * (1.0 - dot(toP, fdir))), hasDir) * (1.0 - 0.5 * hf);
+          let em = lightC * (phase * lightT * mix(0.35, 1.0, powder)) + amb + vec3f(0.75, 0.82, 1.0) * (fGlow * 0.5 / max(exposure, 1.0));
+          let tr = exp(-d * sigma * ds);
+          L = L + T * em * (1.0 - tr);
+          T = T * tr;
+        }
+      }
+    }
+    // far clouds sink into the haze (aerial perspective toward the sky behind them) and fade at the horizon
+    let haze = 1.0 - exp(-s0 / 38.0);
+    let fadeV = smoothstep(-0.03, 0.02, dir.y) * (1.0 - smoothstep(55.0, 90.0, s0));
+    let aV = (1.0 - T) * fadeV;
+    var colV = mix(L / max(1.0 - T, 1e-4), atmo, haze * 0.75);
+    // rain clouds are grey, not sky-blue
+    colV = mix(colV, vec3f(skyLum(colV)) * vec3f(0.93, 0.96, 1.0), 0.65 * uniforms.skyCloud1.y);
+    rgb = mix(rgb, colV, aV);
+    cloudA = max(cloudA, aV);
+  }
+#endif
 #ifdef SKY_CLOUDS_CUMULUS
+#ifndef SKY_CLOUDS_VOLUME
   {
     let cover = uniforms.skyCloud0.z;
     let thick = uniforms.skyCloud0.w;
@@ -224,9 +353,26 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     cloudA = max(cloudA, a);
   }
 #endif
+#endif
 
-  // rain: a greyer, flatter sky
+  // rain shafts: grey curtains hanging under the raining clouds, toward the horizon
+  {
+    let uvS = (uniforms.skyCam.xz * 0.001 + hdir * 7.0) / 9.0 + uniforms.skyCloud0.xy;
+    let cS = textureSampleLevel(cloudNoise, cloudNoiseSampler, uvS, 0.0).r;
+    let colS = clamp((cS - (1.0 - uniforms.skyCloud0.z)) / max(uniforms.skyCloud0.z, 0.05), 0.0, 1.0);
+    let az = atan2(hdir.y, hdir.x);
+    let streak = textureSampleLevel(cloudNoise, cloudNoiseSampler, vec2f(az * 3.0, dir.y * 0.6 + uniforms.skyCam.w * 0.01), 0.0).g;
+    let under = (1.0 - smoothstep(0.02, 0.16, dir.y)) * smoothstep(-0.03, 0.0, dir.y);
+    let shaft = uniforms.skyVol2.w * colS * under * mix(0.5, 1.0, streak);
+    rgb = mix(rgb, uniforms.skyCloudAmb.rgb * 0.75, clamp(shaft, 0.0, 0.85));
+  }
+
+  // a dark sky greys toward its clouds
+  rgb = mix(rgb, vec3f(skyLum(rgb)) * vec3f(0.93, 0.96, 1.0), 0.55 * uniforms.skyCloud1.y * cloudA);
+
+  // rain: a greyer, flatter sky; snow: a bright, flat, faintly blue-white grey
   rgb = mix(rgb, vec3f(skyLum(rgb)), 0.3 * precip);
+  rgb = mix(rgb, vec3f(skyLum(rgb)) * vec3f(1.16, 1.19, 1.25), 0.55 * uniforms.skyVol1.z);
 
   // 4. stars (LDR, after the exposure; hidden by clouds, the moon and a bright sky)
   let cells = uniforms.skyStarsX.w;
@@ -254,13 +400,16 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
 #ifdef SKY_MILKYWAY
   {
     let band = exp(-sd.z * sd.z * 30.0);
-    let mw = textureSample(cloudNoise, cloudNoiseSampler, sd.xy * 1.7 + vec2f(0.5)).b;
+    let mw = textureSampleLevel(cloudNoise, cloudNoiseSampler, sd.xy * 1.7 + vec2f(0.5), 0.0).b;
     stars = stars + vec3f(0.55, 0.6, 0.75) * (band * mw * mw * 0.12 * starVis);
   }
 #endif
 
   // 6, 7. output
-  let flash = uniforms.skyCloudLight.a * vec3f(0.8, 0.85, 1.0) * (0.3 + 0.7 * cloudA);
+  // the flash lights the clouds most toward the bolt (skyVol1.xy), the whole sky dimmer
+  let fdirO = uniforms.skyVol1.xy;
+  let toward = mix(1.0, 0.35 + 1.3 * exp(-6.0 * (1.0 - dot(hdir, fdirO))), step(0.01, dot(fdirO, fdirO)));
+  let flash = uniforms.skyCloudLight.a * vec3f(0.8, 0.85, 1.0) * ((0.2 + 0.6 * cloudA) * toward);
   let ldr = pow(skyAces(exposed), vec3f(1.0 / 2.2)) + stars + flash;
   let hdr = rgb * uniforms.skyCloud1.w + (stars + flash) / max(exposure, 1e-3);
   let fogL = uniforms.skyFog.rgb;
@@ -294,6 +443,7 @@ uniform sampler2D moonView;
 uniform sampler2D cloudNoise;
 uniform sampler2D cloudRetail;
 uniform sampler2D moonTex;
+uniform highp sampler3D cloudVolume;
 ${UNIFORMS_GLSL}
 varying vec3 vDir;
 

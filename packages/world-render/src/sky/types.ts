@@ -91,6 +91,11 @@ export interface SkyWeather {
   precipitation: number
   /** 0..1 lightning this frame. */
   flash: number
+  /** Unit xz bearing toward the flash (absent or 0: the whole sky); the volumetric clouds glow there from inside. */
+  flashX?: number
+  flashZ?: number
+  /** 0..1 snowfall (the winter season's sky: a bright, flat grey). */
+  snow?: number
 }
 
 export const CLEAR_SKY_WEATHER: Readonly<SkyWeather> = Object.freeze({
@@ -101,8 +106,12 @@ export const CLEAR_SKY_WEATHER: Readonly<SkyWeather> = Object.freeze({
 export interface SkyQuality {
   /** Sky-view LUT size, march steps, refresh (s), built in a worker (Ultra). */
   lut: { width: number; height: number; steps: number; refreshS: number; worker: boolean }
-  /** 'retail' = the retail cloud1 plane; 'cumulus' = the lit 2.5D clouds with `taps` + `lightTaps`. */
-  clouds: { kind: 'retail' | 'cumulus'; taps: number; lightTaps: number; cirrus: boolean; detailOctave: boolean }
+  /**
+   * 'retail' = the retail cloud1 plane; 'cumulus' = the lit 2.5D clouds with `taps` + `lightTaps`. `volumeSteps` > 0:
+   * raymarched volumetric clouds instead of the 2.5D ones (Overall Pass item 10), that many march steps, `lightTaps`
+   * light-march taps (WebGPU).
+   */
+  clouds: { kind: 'retail' | 'cumulus'; taps: number; lightTaps: number; cirrus: boolean; detailOctave: boolean; volumeSteps?: number }
   /** Cloud shadows: none, on terrain and grass, or on objects too. */
   cloudShadows: 'off' | 'ground' | 'all'
   stars: { perFace: number; twinkle: boolean; milkyWay: boolean }
@@ -146,7 +155,7 @@ export const SKY_PRESETS: Readonly<Record<SkyPreset, Readonly<SkyQuality>>> = {
   },
   high: {
     lut: { width: 96, height: 48, steps: 24, refreshS: 1, worker: false },
-    clouds: { kind: 'cumulus', taps: 3, lightTaps: 2, cirrus: true, detailOctave: false },
+    clouds: { kind: 'cumulus', taps: 3, lightTaps: 2, cirrus: true, detailOctave: false, volumeSteps: 20 },
     cloudShadows: 'ground',
     stars: { perFace: 256, twinkle: true, milkyWay: false },
     flares: 4,
@@ -155,7 +164,7 @@ export const SKY_PRESETS: Readonly<Record<SkyPreset, Readonly<SkyQuality>>> = {
   },
   ultra: {
     lut: { width: 128, height: 64, steps: 32, refreshS: 0.5, worker: true },
-    clouds: { kind: 'cumulus', taps: 4, lightTaps: 3, cirrus: true, detailOctave: true },
+    clouds: { kind: 'cumulus', taps: 4, lightTaps: 3, cirrus: true, detailOctave: true, volumeSteps: 32 },
     cloudShadows: 'all',
     stars: { perFace: 256, twinkle: true, milkyWay: true },
     flares: 8,
