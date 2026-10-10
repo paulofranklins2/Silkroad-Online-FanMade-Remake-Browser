@@ -91,6 +91,7 @@ import { SiegeService } from './siege/event.ts'
 import { ThunderKegs } from './siege/keg.ts'
 import { LawService } from './siege/law.ts'
 import { HunterService } from './siege/hunters.ts'
+import { PvpService } from './pvp.ts'
 import { JobService } from './jobs/jobs.ts'
 import { MarketService } from './jobs/market.ts'
 import { TransportService } from './jobs/transport.ts'
@@ -351,6 +352,8 @@ export class Gameplay implements AiHost {
    */
   readonly hunters: HunterService
   readonly jail: JailService
+  /** Open-world PvP, opt-in (docs/PVP.md; pvp.ts): the PvP cape (caped players fight outside towns). */
+  readonly pvp: PvpService
   /**
    * The job system, layer 1 (docs/JOBS.md; jobs/jobs.ts): Trader, Bounty Hunter and Thief licences, one side per account,
    * job mode (the suit), job EXP and levels, the job rows of the PvP rule.
@@ -453,6 +456,7 @@ export class Gameplay implements AiHost {
     this.law = new LawService(this)
     this.hunters = new HunterService(this)
     this.jail = new JailService(this)
+    this.pvp = new PvpService(this)
     this.jobs = new JobService(this)
     this.market = new MarketService(this)
     this.transports = new TransportService(this)
@@ -495,6 +499,8 @@ export class Gameplay implements AiHost {
       // docs/SIEGE.md §8.2-§8.5: the Hunters and the jail, after the law (warrants, capture)
       this.hunters,
       this.jail,
+      // docs/PVP.md: the PvP cape (its rule rides on the Hunters' pvpAllowed)
+      this.pvp,
       // docs/JOBS.md §9.2: the jobs core, after the Hunters (the Hunter job is their licence)
       this.jobs,
       // docs/JOBS.md §9.2: the market and the transports, after the jobs core

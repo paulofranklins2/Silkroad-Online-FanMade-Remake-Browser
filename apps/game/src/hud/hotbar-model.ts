@@ -117,18 +117,20 @@ export interface TargetRef {
   id: number
   kind: 'player' | 'mob' | 'npc' | 'item'
   dead: boolean
+  /** A player the PvP rules may let us fight (PvP capes, Hunter / Wanted, the job war); the server judges. */
+  hostile?: boolean
 }
 
 /**
  * The `target` of a useSkill (SKILLS.md §10.1 step 5; decision 13): skills that need no target send none; friendly
  * skills take the selected player (a corpse for resurrection) and fall back to yourself; enemy skills need a live
- * selected monster (no PvP), else 'need_target' and nothing is sent.
+ * selected monster or a hostile player (docs/PVP.md; the server judges), else 'need_target' and nothing is sent.
  */
 export function skillTarget(def: SkillDef | undefined, selected: TargetRef | null, selfId: number | null): { target?: number } | 'need_target' {
   const tg = def?.targets
   if (!tg || !tg.required) return {}
   const enemy = tg.groups.some(g => g === 'enemy_mob' || g === 'enemy_player' || g === 'neutral' || g === 'any')
-  if (enemy) return selected && selected.kind === 'mob' && !selected.dead ? { target: selected.id } : 'need_target'
+  if (enemy) return selected && !selected.dead && (selected.kind === 'mob' || (selected.kind === 'player' && selected.hostile && selected.id !== selfId)) ? { target: selected.id } : 'need_target'
   if (tg.deadBody) return selected && selected.kind === 'player' && selected.dead ? { target: selected.id } : 'need_target'
   if (selected && selected.kind === 'player' && !selected.dead) return { target: selected.id }
   return selfId !== null ? { target: selfId } : {}

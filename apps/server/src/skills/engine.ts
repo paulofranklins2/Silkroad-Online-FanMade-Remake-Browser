@@ -652,7 +652,8 @@ export class SkillEngine implements GameplayModule {
       const [, ...next] = selectTargets(row.area, this.xz(a, now), this.cand(t, now), others)
       const part = Math.max(1, Math.round(bounce * reductionMul(row.area.reductionPct)))
       for (const c of next) {
-        const m = this.g.world.mobs.get(c.id)
+        // docs/PVP.md: the bounce reaches the players this caster may fight too (candidates checks the PvP rule)
+        const m = this.g.world.mobs.get(c.id) ?? this.g.world.players.get(c.id)
         if (m) this.land(a, m, row.code, [{ outcome: 'hit', damage: part, hp: 0 }], [null], { aoe: true }, now)
       }
     }
@@ -679,7 +680,6 @@ export class SkillEngine implements GameplayModule {
     return { id: e.id, x: p[0], z: p[2], radius: e.radius }
   }
 
-  /** Living enemies (mobs; no PvP) within `range` of `around`, as area candidates. */
   /** docs/JOBS.md §4 (layer 4): loaded trade transports a Thief's area skill may hit (attackRefusal: none), near `around`. */
   private cosCandidates(caster: Player, around: Player | Mob | Cos, range: number, now: number): Candidate[] {
     const c = this.xz(around, now)
@@ -707,6 +707,11 @@ export class SkillEngine implements GameplayModule {
     return hits
   }
 
+  /**
+   * Living enemies within `range` of `around`, as area candidates: every monster the caster sees, and (a player caster)
+   * every player the PvP rule lets them fight now (HunterService.allowed: two PvP capes outside towns, the Hunter /
+   * Wanted fight, the job war; never associates, the jailed or the caster).
+   */
   private candidates(caster: Player | Mob, around: Player | Mob | Cos, range: number, now: number): Candidate[] {
     const c = this.xz(around, now)
     const out: Candidate[] = []
@@ -716,19 +721,27 @@ export class SkillEngine implements GameplayModule {
       const q = this.cand(m, now)
       if (Math.hypot(q.x - c.x, q.z - c.z) <= range + q.radius) out.push(q)
     }
+    if (caster.kind !== 'player') return out
+    for (const t of this.g.world.playersNear(c.x, c.z, range + 2, now)) {
+      if (t === caster || t.dead || !caster.known.has(t.id) || !this.g.hunters.allowed(caster, t, now)) continue
+      const q = this.cand(t, now)
+      if (Math.hypot(q.x - c.x, q.z - c.z) <= range + q.radius) out.push(q)
+    }
     return out
   }
 
   /** An attack or debuff at release: area targets, hits per target, projectiles held until they land. */
   private strike(p: Player, row: SkillDef, primary: Player | Mob | Cos, instance: number, now: number): void {
-    // a player (the Hunter / Wanted fight, docs/SIEGE.md §8.3): the primary only; areas never reach other players
-    const area = primary.kind === 'player' ? undefined : row.area
+    // docs/PVP.md: areas reach every monster and every player the PvP rule allows (candidates), whoever the primary is
+    const area = row.area
     const proj = projectileOf(row)
     let targets: Candidate[] = [this.cand(primary, now)]
     if (area) {
       const from = area.shape === 'caster' ? p : primary
       const lineLen = area.shape === 'projectile_pierce' ? Math.max(row.range, PROJECTILE_LINE_M) : 0
-      const range = Math.max(area.distance, lineLen, this.g.world.distance(p, primary, now)) + 3
+      // a chain hops from the last one hit: up to maxTargets − 1 hops (unlimited: 8) of `distance` each
+      const hops = area.shape === 'chain' ? Math.max(1, (area.maxTargets > 0 ? area.maxTargets : 9) - 1) : 1
+      const range = Math.max(area.distance * hops, lineLen, this.g.world.distance(p, primary, now)) + 3
       // docs/JOBS.md §4: a Thief's area also reaches the loaded transports he may rob
       targets = selectTargets(area, this.xz(p, now), this.cand(primary, now), [...this.candidates(p, from, range, now), ...this.cosCandidates(p, from, range, now)], lineLen)
     }
@@ -742,7 +755,7 @@ export class SkillEngine implements GameplayModule {
         else this.g.dealHits(p, cos, hits, aoe ? { skill: row.code, instance, aoe } : { skill: row.code, instance }, now)
         return
       }
-      const t = c.id === primary.id ? (primary as Player | Mob) : this.g.world.mobs.get(c.id)
+      const t = c.id === primary.id ? (primary as Player | Mob) : (this.g.world.mobs.get(c.id) ?? this.g.world.players.get(c.id))
       if (!t) return
       const { hits, statuses } = this.rollHits(p, t, row, aoe && area ? reductionMul(area.reductionPct) : 1, now)
       if (proj) {

@@ -221,6 +221,9 @@ export class HunterService implements GameplayModule {
       inStockade: inStockade(x, z),
       // docs/JOBS.md §4: the job war
       ...this.g.jobs.pvpSide(p, x, z),
+      // docs/PVP.md: the PvP cape, no cape PvP in a town
+      pk: this.g.pvp.isOn(p.characterId),
+      inTown: this.g.data.inSafeArea(this.g.config.world, x, z),
     }
   }
 
@@ -236,14 +239,22 @@ export class HunterService implements GameplayModule {
     const sa = this.side(a, now)
     const st = this.side(t, now)
     const war = !!(sa.jobMode && st.jobMode && sa.job && st.job && jobSide(sa.job) !== jobSide(st.job))
-    if (!sa.hunter && !sa.wanted && !war) return st.wanted ? fail('not_hunter', 'Only Bounty Hunters on duty may fight the Wanted (Captain Yun, by the west gate).') : fail('invalid_target', 'no PvP')
+    const cape = !!(sa.pk && st.pk)
+    if (!sa.hunter && !sa.wanted && !war && !cape) {
+      if (st.wanted) return fail('not_hunter', 'Only Bounty Hunters on duty may fight the Wanted (Captain Yun, by the west gate).')
+      // docs/PVP.md: the PvP cape on one side only
+      if (sa.pk) return fail('invalid_target', 'They are not wearing the PvP cape.')
+      if (st.pk) return fail('invalid_target', 'Put on your PvP cape to fight them.')
+      return fail('invalid_target', 'no PvP')
+    }
     const assoc = this.g.law.isAssociate(this.g.law.associates(a), t)
     if (pvpAllowed(sa, st, assoc)) return null
     if (sa.inStockade || st.inStockade || st.jailed) return fail('invalid_target', 'No fighting in the Garrison Stockade.')
-    if (assoc && ((sa.hunter && st.wanted) || (sa.wanted && st.hunter) || war)) return fail('invalid_target', 'You cannot fight your own party, guild, account or friends.')
+    if (assoc && ((sa.hunter && st.wanted) || (sa.wanted && st.hunter) || war || cape)) return fail('invalid_target', 'You cannot fight your own party, guild, account or friends.')
     if (sa.hunter && st.pardoned) return fail('invalid_target', 'Just released: the garrison has pardoned them for now.')
     if (war && (sa.inJobSafe || st.inJobSafe)) return fail('safe_zone', 'Towns and the trade posts are safe: the job war is fought on the roads.')
     if (sa.hunter && this.g.law.robberOnly(t.characterId)) return fail('safe_zone', 'The Bandit Den shelters its customers: catch the robber on the road.')
+    if (cape && (sa.inTown || st.inTown)) return fail('safe_zone', 'No PvP inside town.')
     return fail('invalid_target', 'no PvP')
   }
 

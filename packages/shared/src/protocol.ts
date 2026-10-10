@@ -28,6 +28,7 @@ import { WALL_RATE_LIMITS, WALL_REQUESTS, type WallClientMessage, type WallReque
 import { SIEGE_RATE_LIMITS, SIEGE_REQUESTS, type SiegeClientMessage, type SiegeRequest, type SiegeRole, type SiegeServerMessage } from './siege-event.ts'
 import { LAW_FAIL_REASONS, LAW_RATE_LIMITS, LAW_REQUESTS, type LawClientMessage, type LawFailReason, type LawRequest, type LawServerMessage } from './siege-law.ts'
 import { HUNTER_FAIL_REASONS, HUNTER_RATE_LIMITS, HUNTER_REQUESTS, type HunterClientMessage, type HunterFailReason, type HunterRequest, type HunterServerMessage } from './siege-hunter.ts'
+import { PVP_RATE_LIMITS, PVP_REQUESTS, type PvpClientMessage, type PvpRequest } from './pvp.ts'
 import { JOB_FAIL_REASONS, JOB_RATE_LIMITS, JOB_REQUESTS, type JobBadge, type JobClientMessage, type JobFailReason, type JobRequest, type JobServerMessage } from './jobs.ts'
 
 // Wave 9 (docs/WAVE_PLAN3.md §3.2): the clock and weather types live in their own modules.
@@ -269,6 +270,8 @@ export interface EntityState {
   stars?: number
   /** Players (docs/JOBS.md §6.4, layer 4): an open robbery warrant: the ROBBER label line (the client shows it to job-mode players). */
   robber?: true
+  /** Players (docs/PVP.md): wearing the PvP cape (open-world PvP with other caped players outside towns). */
+  pvp?: true
 }
 
 export interface WorldInfo {
@@ -647,6 +650,8 @@ export type ClientMessage =
   // ---- Siege of Jangan, layer 5: player kegs and Wanted (docs/SIEGE.md §10.1; siege-law.ts). GameplayRequests. ----
   | LawClientMessage
   | HunterClientMessage
+  // open-world PvP (docs/PVP.md)
+  | PvpClientMessage
   // ---- the job system, layer 1 (docs/JOBS.md §9.4; jobs.ts). GameplayRequests. ----
   | JobClientMessage
 
@@ -741,6 +746,8 @@ export type ServerMessage =
       stars?: number
       /** Layer 4: a robbery warrant opened (true) or closed (false). */
       robber?: boolean
+      /** docs/PVP.md: the PvP cape went on (true) or came off (false). */
+      pvp?: boolean
     }
   /**
    * GM addition: this account's role changed while connected (`pnpm gm grant|revoke`; the server
@@ -1175,6 +1182,8 @@ export type GameplayRequest =
   | HunterRequest
   // the job system, layer 1 (docs/JOBS.md §9.4)
   | JobRequest
+  // open-world PvP (docs/PVP.md)
+  | PvpRequest
 
 /** Winter gameplay requests (docs/WINTER.md §13): throw a snowball, ask for the scoreboard. */
 export type WinterRequest = 'snowball' | 'winterBoard'
@@ -1210,6 +1219,7 @@ export const GAMEPLAY_REQUESTS: readonly GameplayRequest[] = [
   ...HUNTER_REQUESTS,
   'climbArt', 'climbTitle',
   ...JOB_REQUESTS,
+  ...PVP_REQUESTS,
 ]
 
 /** Why a gameplay request was refused. Clients show a short localized line per reason. */
@@ -1570,6 +1580,7 @@ export const CLIENT_RATE_LIMITS: Readonly<Partial<Record<ClientMessage['t'], { p
   ...HUNTER_RATE_LIMITS,
   // the job system, layer 1 (docs/JOBS.md §9.4)
   ...JOB_RATE_LIMITS,
+  ...PVP_RATE_LIMITS,
 }
 
 /** Narrows an entity to a player (which always carries `weapon`). */

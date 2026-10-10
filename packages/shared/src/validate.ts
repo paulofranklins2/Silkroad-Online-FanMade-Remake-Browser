@@ -296,6 +296,8 @@ const CLIENT_KEYS: Record<ClientMessage['t'], readonly string[]> = {
   hunterLicence: ['t', 'npc'],
   hunterDuty: ['t', 'on'],
   hunterNet: ['t', 'target'],
+  // open-world PvP (docs/PVP.md)
+  pvpFlag: ['t', 'on'],
   jailChore: ['t'],
   // the job system, layer 1 (docs/JOBS.md §9.4)
   jobJoin: ['t', 'npc', 'job'],
@@ -681,6 +683,8 @@ function clientMessage(v: unknown): ClientMessage {
       return { t: 'hunterDuty', on: bool(v, 'on') }
     case 'hunterNet':
       return { t: 'hunterNet', target: int(v, 'target', 1, MAX_ID) }
+    case 'pvpFlag':
+      return { t: 'pvpFlag', on: bool(v, 'on') }
     case 'jailChore':
       return { t: 'jailChore' }
     // ---- the job system, layer 1 (docs/JOBS.md §9.4) ----
@@ -1107,6 +1111,7 @@ function entity(v: unknown): EntityState {
   if (o.job !== undefined) e.job = jobBadge(o.job)
   if (o.stars !== undefined) e.stars = int(o, 'stars', 1, JOB_LIMITS.stars)
   if (o.robber !== undefined && bool(o, 'robber')) e.robber = true
+  if (o.pvp !== undefined && bool(o, 'pvp')) e.pvp = true
   return e
 }
 
@@ -1792,6 +1797,7 @@ function serverMessage(v: unknown): ServerMessage {
       if (o.job !== undefined) m.job = o.job === null ? null : jobBadge(o.job)
       if (o.stars !== undefined) m.stars = int(o, 'stars', 0, JOB_LIMITS.stars)
       if (o.robber !== undefined) m.robber = bool(o, 'robber')
+      if (o.pvp !== undefined) m.pvp = bool(o, 'pvp')
       return m
     }
     case 'role':

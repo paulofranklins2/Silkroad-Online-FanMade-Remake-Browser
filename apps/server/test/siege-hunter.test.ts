@@ -308,7 +308,7 @@ describe('PvP gating (§8.3, §8.6)', () => {
     expect(x.attack(h2, w.p)).toMatchObject({ ok: false, reason: 'invalid_target' })
   })
 
-  it('single-target skills follow the same rule; areas never touch players', () => {
+  it('single-target skills follow the same rule; areas touch only players the rule allows', () => {
     const x = harness()
     const w = x.char([0, 0, 0], { name: 'Crook' })
     const hunter = x.char([1, 0, 0], { name: 'Hunter' })

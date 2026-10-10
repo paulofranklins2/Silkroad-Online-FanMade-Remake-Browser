@@ -53,6 +53,7 @@ import { wallsFeature } from './features/walls.ts'
 import { siegeRepairFeature } from './features/siege-repair.ts'
 import { siegeFeature } from './features/siege.ts'
 import { lawFeature } from './features/law.ts'
+import { pvpFeature } from './features/pvp.ts'
 import { newsFeature } from './features/news.ts'
 import { rarityFeature } from './features/rarity.ts'
 import { climbFeature } from './features/climb.ts'
@@ -200,6 +201,8 @@ export const WORLD_FEATURES: readonly WorldFeatureFactory[] = [
   siegeFeature, // world/features/siege.ts
   // Siege of Jangan, layer 5 (docs/SIEGE.md §8, §9.3): the WANTED label, the law's banners, your warrant, Old Fang, the plant prompt.
   lawFeature, // world/features/law.ts
+  // Open-world PvP (docs/PVP.md): the PvP cape button, the caped players' tag and minimap dots, click to fight.
+  pvpFeature, // world/features/pvp.ts
   jobLooksFeature, // world/features/job-looks.ts (JOBS.md layer 6: suits, the job line, transports' goods)
   // The job system, layer 5 (docs/JOBS.md §10): licences, the Job tab, the trade window, transports, the den, bags, pings.
   jobsFeature, // world/features/jobs.ts

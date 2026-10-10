@@ -269,6 +269,10 @@ describe('hotbar model', () => {
     expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), mob, 7)).toEqual({ target: 50 })
     expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), null, 7)).toBe('need_target')
     expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), { ...mob, dead: true }, 7)).toBe('need_target')
+    // docs/PVP.md: a hostile player takes attack skills; a friendly one and yourself do not
+    expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), { id: 9, kind: 'player', dead: false, hostile: true }, 7)).toEqual({ target: 9 })
+    expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), { id: 9, kind: 'player', dead: false }, 7)).toBe('need_target')
+    expect(skillTarget(c.get('SKILL_CH_SWORD_SMASH_A_01'), { id: 7, kind: 'player', dead: false, hostile: true }, 7)).toBe('need_target')
     expect(skillTarget(c.get('SKILL_CH_WATER_HEAL_A_01'), mob, 7)).toEqual({ target: 7 })
     expect(skillTarget(c.get('SKILL_CH_WATER_HEAL_A_01'), { id: 9, kind: 'player', dead: false }, 7)).toEqual({ target: 9 })
     expect(skillTarget(c.get('SKILL_CH_COLD_GANGGI_A_01'), mob, 7)).toEqual({})

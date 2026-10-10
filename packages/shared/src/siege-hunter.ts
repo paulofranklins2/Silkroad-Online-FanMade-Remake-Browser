@@ -25,6 +25,7 @@
 import type { ItemDef, NpcDef, ShopDef } from './content.ts'
 import type { SiegeEventSettings } from './siege-event.ts'
 import { jobPvp, type JobId } from './jobs.ts'
+import { capePvp } from './pvp.ts'
 
 // ---- content -----------------------------------------------------------------------------------------------------------
 
@@ -235,19 +236,25 @@ export interface PvpSide {
   jobMode?: boolean
   /** In a place safe from the job war: a safe area (town), the stockade, a trade post's or the den's ring. */
   inJobSafe?: boolean
+  // ---- open-world PvP (docs/PVP.md; absent = no cape) ----
+  /** Wearing the PvP cape. */
+  pk?: boolean
+  /** In a town's safe area (no cape PvP there). */
+  inTown?: boolean
 }
 
 /**
  * Whether `a` may attack `b` (docs/SIEGE.md §8.3): an on-duty Hunter a Wanted, a Wanted an on-duty Hunter, never
  * associates (party, guild, the same account, the same IP), never in the stockade, never the jailed or the pardoned.
  * The job war (docs/JOBS.md §4): two players in job mode on opposite sides (a Trader or a Hunter against a Thief),
- * neither in a job-safe place (towns stay safe for it; the Wanted row keeps its "no sanctuary"). Everyone else: no PvP.
+ * neither in a job-safe place (towns stay safe for it; the Wanted row keeps its "no sanctuary"). Open-world PvP
+ * (docs/PVP.md): two players wearing the PvP cape, neither in a town. Everyone else: no PvP.
  */
 export function pvpAllowed(a: PvpSide, b: PvpSide, associates: boolean): boolean {
   if (associates || a.jailed || b.jailed || a.inStockade || b.inStockade) return false
   if (a.hunter && b.wanted && !b.pardoned) return true
   if (a.wanted && b.hunter && !a.pardoned) return true
-  return jobPvp(a, b)
+  return jobPvp(a, b) || capePvp(a, b)
 }
 
 // ---- capture (docs/SIEGE.md §8.4) -------------------------------------------------------------------------------------------

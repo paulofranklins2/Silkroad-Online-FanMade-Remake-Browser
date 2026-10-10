@@ -289,7 +289,10 @@ export const skillsFeature: WorldFeatureFactory = (ctx: WorldFeatureContext) => 
     if (r.block === 'no_item') return hud.toast(t('skills.hotbar.noItem'), 'error')
     if (r.block === 'not_learned') return hud.toast(t('action.fail.not_learned'), 'error')
     const tv = ctx.target()
-    const selected = tv && tv.kind !== 'item' && tv.kind !== 'cos' ? { id: tv.id, kind: tv.kind, dead: tv.dead || tv.dying } : null
+    // docs/PVP.md: a player we may fight (both PvP capes, the Hunter / Wanted fight, the job war) takes attack skills too
+    const st = tv?.state
+    const hostile = tv?.kind === 'player' && !!st && ((st.wanted ?? 0) > 0 || st.hunter !== undefined || st.robber === true || !!st.job || (st.pvp === true && self?.state.pvp === true))
+    const selected = tv && tv.kind !== 'item' && tv.kind !== 'cos' ? { id: tv.id, kind: tv.kind, dead: tv.dead || tv.dying, hostile } : null
     const def = r.entry.kind === 'skill' ? catalog.get(r.code) : undefined
     const msg = slotMessage(r, def, selected, ctx.selfId())
     if (msg === 'need_target') return hud.toast(t('skills.needTarget'), 'error')

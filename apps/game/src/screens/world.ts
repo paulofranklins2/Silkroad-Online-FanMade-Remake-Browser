@@ -576,7 +576,8 @@ export function worldScreen(app: App, params: ScreenParams['world']): Screen {
     band: v.kind === 'mob' ? levelBand(v.state.level, selfLevel()) : undefined,
     variant: v.kind === 'mob' ? v.state.variant : undefined,
     // Siege of Jangan layer 6: a Wanted player or an on-duty Hunter shows the enemy window (HP) and the hostile ring
-    hostile: v.kind === 'player' && ((v.state.wanted ?? 0) > 0 || v.state.hunter !== undefined),
+    // docs/PVP.md: a caped player while we wear the cape too
+    hostile: v.kind === 'player' && ((v.state.wanted ?? 0) > 0 || v.state.hunter !== undefined || (v.state.pvp === true && selfView()?.state.pvp === true)),
   })
 
   const clearTarget = () => {

@@ -43,6 +43,7 @@ import { enSiege } from './en-siege.ts'
 import { enSiegeRepair } from './en-siege-repair.ts'
 import { enSiegeLaw } from './en-siege-law.ts'
 import { enSiegeHunter } from './en-siege-hunter.ts'
+import { enPvp } from './en-pvp.ts'
 import { enJobs } from './en-jobs.ts'
 import { enJobsLooks } from './en-jobs-looks.ts'
 import { enNews } from './en-news.ts'
@@ -85,6 +86,8 @@ export const en = {
   ...enSiegeRepair,
   ...enSiegeLaw,
   ...enSiegeHunter,
+  // Open-world PvP (docs/PVP.md): the PvP cape.
+  ...enPvp,
   ...enJobs,
   ...enJobsLooks,
   // Wave 10 (docs/WAVE_PLAN6.md D15): the jump's toasts (MV-C).
