@@ -1,0 +1,291 @@
+/**
+ * The route bench (docs/PERF_OVERALL.md): a fixed, repeatable walk with the frame probe on, for the stutter hunt.
+ * Noon, clear weather held, the bench character teleported to the Jangan plaza; then
+ *
+ *   spin-plaza   6 s standing, the camera orbiting at SPIN_DEG_S (turning the camera in town)
+ *   walk-town    walking out of Jangan towards the Grassland (the server's path), the camera orbiting slowly
+ *   walk-fields  on into the fields to the Grassland place
+ *   spin-fields  6 s standing in the grass, the camera orbiting
+ *
+ * then (optional) the grass cost: the fields frame with the grass meshes drawn and hidden, interleaved.
+ * Every leg sets the probe's tag, so each spike says where it happened. Runs on the display's own frame pacing
+ * (requestAnimationFrame: the frames the player sees), not the uncapped pump of `measure`.
+ */
+import { EngineInstrumentation, type Observer, type Scene } from '@babylonjs/core'
+import type { World } from '@sro/world-render'
+import { CharacterActor, ModelLibrary } from '../three/models.ts'
+import { CrowdBudget } from '../world/crowd-budget.ts'
+import { EffectList } from '../world/effects.ts'
+import { EntityView } from '../world/entities.ts'
+import { WORLD_FEATURES, type WorldFeature, type WorldFeatureContext, type WorldFeatureFactory } from '../world/features.ts'
+import { WorldGraphics } from '../world/graphics.ts'
+import { intents } from '../world/intents.ts'
+import { HudMinimap } from '../world/jangan/minimap.ts'
+import { NameplateLayout } from '../world/nameplates.ts'
+import { FrameProbe, type ProbeSummary } from './frame-probe.ts'
+
+/** The plaza start (the char bench's spot) and the Grassland GM place (the jangan-fields manifest's places). */
+export const ROUTE = {
+  start: { x: 101, z: -56 },
+  /** Waypoints: out of the plaza through the town, then the fields. */
+  legs: [
+    { tag: 'walk-town', x: 20, z: 40 },
+    { tag: 'walk-fields', x: -146, z: 167 },
+  ],
+} as const
+export const SPIN_DEG_S = 90
+export const WALK_SPIN_DEG_S = 30
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** Own-prototype methods of a class worth timing (no constructor, getters, tiny per-sample lookups). */
+function methodsOf(proto: object, skip: RegExp = /^(constructor|densityAt|meadowAt|lightAt|heightAt|state|chunk|regionOf|navCovers|progress|isDone)$/): string[] {
+  return Object.getOwnPropertyNames(proto).filter(n => !skip.test(n) && typeof Object.getOwnPropertyDescriptor(proto, n)?.value === 'function')
+}
+
+let factoriesWrapped = false
+
+/**
+ * The systems the probe times (once per page for the classes; the world's parts each time a new world appears).
+ * Called at install (the feature factories must be wrapped before the world screen builds its features).
+ */
+export function instrumentClasses(probe: FrameProbe): void {
+  probe.wrapProto(EntityView.prototype, ['update', 'updateLabel'], 'entities')
+  probe.wrapProto(EffectList.prototype, ['update'], 'effects')
+  probe.wrapProto(WorldGraphics.prototype, ['frame'], 'graphics')
+  probe.wrapProto(HudMinimap.prototype, ['update'], 'minimap')
+  probe.wrapProto(CrowdBudget.prototype, ['update', 'plan'], 'crowd')
+  probe.wrapProto(ModelLibrary.prototype, ['lodActors', 'cullActors', 'character', 'dress', 'ensureClips'], 'models')
+  probe.wrapProto(CharacterActor.prototype, ['setOutfitMerge', 'setMergeParts', 'setCrowd', 'lodTick'], 'actor')
+  probe.wrapProto(NameplateLayout.prototype, methodsOf(NameplateLayout.prototype), 'nameplates')
+  if (factoriesWrapped) return
+  factoriesWrapped = true
+  const list = WORLD_FEATURES as WorldFeatureFactory[]
+  for (let i = 0; i < list.length; i++) {
+    const make = list[i]!
+    const name = make.name || `feature${i}`
+    const wrapped: WorldFeatureFactory = ctx => {
+      const f: WorldFeature = make(ctx)
+      probe.wrap(f, 'onFrame', `feature.${name}`)
+      return f
+    }
+    Object.defineProperty(wrapped, 'name', { value: make.name })
+    list[i] = wrapped
+  }
+}
+
+let wrappedWorld: World | null = null
+
+/** The world's parts (World.update's steps), the streamer, the grass; and the network's message handler. */
+export function instrumentWorld(probe: FrameProbe, ctx: WorldFeatureContext): void {
+  probe.hookScene(ctx.scene)
+  const wire = (ctx.session as unknown as { wire?: { onMessage?: (m: { t: string }) => void } | null }).wire
+  if (wire?.onMessage && !(wire.onMessage as { sroNet?: true }).sroNet) {
+    const orig = wire.onMessage
+    const w = (m: { t: string }) => probe.time('net.messages', () => probe.time('net.' + m.t, () => orig(m)))
+    ;(w as { sroNet?: true }).sroNet = true
+    wire.onMessage = w
+  }
+  const world = ctx.world()?.world ?? null
+  if (!world || world === wrappedWorld) return
+  wrappedWorld = world
+  probe.wrap(world, 'update', 'world.update')
+  probe.wrap(world, 'applyEnv', 'world.applyEnv')
+  const W = world as unknown as Record<string, Record<string, unknown> | null | undefined>
+  for (const part of ['sky', 'weather', 'winter', 'nearFade', 'render', 'objects', 'trees', 'ocean', 'scatter', 'grassTint', 'life', 'town']) probe.wrap(W[part], 'update', `world.${part}`)
+  probe.wrap(W.objects, 'tickAnimationSpeed', 'world.objects.tickAnim')
+  const scatter = W.scatter as { field?: object | null; grass?: object | null } | null | undefined
+  if (scatter?.field) probe.wrapProto(Object.getPrototypeOf(scatter.field), methodsOf(Object.getPrototypeOf(scatter.field)), 'grass')
+  probe.wrap(scatter?.grass, 'update', 'grass.uniforms')
+  probe.wrap(scatter, 'generate', 'scatter.generate')
+  const stream = world.stream as unknown as Record<string, unknown> | null
+  if (stream) {
+    probe.wrapProto(Object.getPrototypeOf(stream), methodsOf(Object.getPrototypeOf(stream)), 'stream')
+    probe.wrap(stream.models as object, 'update', 'stream.models.update')
+    // each budgeted job (one job can overrun the budget: the hitch), commit steps under their own names
+    const jobs = stream.jobs as { pop(): { run: () => void; sroJob?: true } | undefined } | undefined
+    const pop = jobs?.pop.bind(jobs)
+    if (jobs && pop) {
+      jobs.pop = () => {
+        const j = pop()
+        if (j && !j.sroJob) {
+          const run = j.run
+          j.run = () => probe.time('stream.job', run)
+          j.sroJob = true
+        }
+        return j
+      }
+    }
+    for (const s of (stream.steps as { name: string; run: (r: unknown) => void }[] | undefined) ?? []) probe.wrap(s, 'run', `stream.step:${s.name}`)
+  }
+}
+
+export interface RouteOptions {
+  spinDegS?: number
+  walkSpinDegS?: number
+  /** Max seconds per walking leg. */
+  legTimeoutS?: number
+  /** Measure the grass with its meshes drawn / hidden at the end (frames per arm, 0 = skip). */
+  grassFrames?: number
+  /** Seconds to settle at the plaza before the run. */
+  settleS?: number
+}
+
+export interface RouteResult {
+  engine: string
+  preset: string | null
+  legs: { tag: string; seconds: number; walkedM: number; reached: boolean }[]
+  probe: ProbeSummary
+  gpuMs: { p50: number; p95: number; max: number; samples: number } | null
+  grass: unknown
+  census: unknown
+}
+
+/** The run (see the header). `bench` supplies the GM commands, the status and the uncapped measure for the grass arms. */
+export async function runRoute(
+  ctx: WorldFeatureContext,
+  probe: FrameProbe,
+  bench: {
+    gm(cmd: string, ...a: string[]): boolean
+    status(): { worldReady: boolean; preset: string | null; engine: string }
+    measure(label: string, o: { frames: number; warm?: number }): Promise<Record<string, unknown>>
+    census(): unknown
+  },
+  o: RouteOptions = {},
+): Promise<RouteResult> {
+  const scene: Scene = ctx.scene
+  const cam = ctx.camera
+  bench.gm('time', '12:00')
+  bench.gm('weather', 'clear', '30', '0')
+  bench.gm('tp', String(ROUTE.start.x), String(ROUTE.start.z))
+  await sleep(3000)
+  for (let i = 0; i < 240 && !bench.status().worldReady; i++) await sleep(500)
+  cam.alpha = Math.PI / 2
+  cam.beta = 1.2
+  cam.radius = 14
+  await sleep((o.settleS ?? 10) * 1000)
+  instrumentWorld(probe, ctx)
+
+  let spin = 0
+  const spinObs: Observer<Scene> = scene.onBeforeRenderObservable.add(() => {
+    if (spin) cam.alpha += (spin * Math.PI / 180) * Math.min(0.1, scene.getEngine().getDeltaTime() / 1000)
+  })!
+  const eng = scene.getEngine()
+  let gi: EngineInstrumentation | null = null
+  try {
+    gi = new EngineInstrumentation(eng)
+    gi.captureGPUFrameTime = true
+  } catch {
+    gi = null
+  }
+  const gpu: number[] = []
+  const gpuObs = eng.onEndFrameObservable.add(() => {
+    const ns = gi?.gpuFrameTimeCounter.current ?? 0
+    if (ns > 0) gpu.push(ns / 1e6)
+  })
+  const self = () => {
+    const id = ctx.selfId()
+    return id === null ? null : ctx.view(id) ?? null
+  }
+  const legs: RouteResult['legs'] = []
+  const spinLeg = async (tag: string) => {
+    probe.tag = tag
+    spin = o.spinDegS ?? SPIN_DEG_S
+    const t0 = performance.now()
+    await sleep(6000)
+    spin = 0
+    legs.push({ tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: 0, reached: true })
+  }
+  probe.start()
+  try {
+    await spinLeg('spin-plaza')
+    for (const leg of ROUTE.legs) {
+      probe.tag = leg.tag
+      spin = o.walkSpinDegS ?? WALK_SPIN_DEG_S
+      const t0 = performance.now()
+      let walked = 0
+      let last = self()?.pos.clone() ?? null
+      let reached = false
+      let still = 0
+      ctx.send(intents.moveTo(leg.x, leg.z))
+      while (performance.now() - t0 < (o.legTimeoutS ?? 90) * 1000) {
+        await sleep(500)
+        instrumentWorld(probe, ctx)
+        const p = self()?.pos
+        if (!p) continue
+        const step = last ? Math.hypot(p.x - last.x, p.z - last.z) : 0
+        walked += step
+        last = p.clone()
+        if (Math.hypot(p.x - leg.x, p.z - leg.z) < 4) {
+          reached = true
+          break
+        }
+        // stopped short (a path end, a blocked step): ask again
+        still = step < 0.2 ? still + 1 : 0
+        if (still >= 3) {
+          ctx.send(intents.moveTo(leg.x, leg.z))
+          still = 0
+        }
+      }
+      spin = 0
+      legs.push({ tag: leg.tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: Math.round(walked), reached })
+    }
+    await spinLeg('spin-fields')
+  } finally {
+    spin = 0
+    probe.tag = ''
+  }
+  const summary = probe.stop()
+  scene.onBeforeRenderObservable.remove(spinObs)
+  eng.onEndFrameObservable.remove(gpuObs)
+  gi?.dispose()
+  const qs = (a: number[], p: number) => [...a].sort((x, y) => x - y)[Math.floor(p * (a.length - 1))] ?? 0
+  const r2 = (v: number) => Math.round(v * 100) / 100
+
+  // the grass cost: the same view with the grass meshes drawn / hidden (uncapped frames, CPU + GPU), interleaved
+  let grass: unknown = null
+  const frames = o.grassFrames ?? 240
+  const scatter = (ctx.world()?.world as unknown as { scatter?: { meshes(): { setEnabled(on: boolean): void; isEnabled(): boolean }[] } } | undefined)?.scatter
+  if (frames > 0 && scatter) {
+    cam.alpha = Math.PI / 2
+    const arms: Record<string, unknown>[] = []
+    for (const arm of ['on', 'off', 'off', 'on']) {
+      const meshes = scatter.meshes()
+      const was = meshes.map(m => m.isEnabled())
+      if (arm === 'off') for (const m of meshes) m.setEnabled(false)
+      try {
+        await sleep(1000)
+        const m = await bench.measure(`grass-${arm}`, { frames, warm: 30 })
+        arms.push({ arm, frameMs: m.frameMs, cpuMs: m.cpuMs, gpuMs: m.gpuMs, draws: m.draws, segments: m.segments, meshes: meshes.length })
+      } finally {
+        meshes.forEach((m, i) => m.setEnabled(was[i]!))
+      }
+    }
+    grass = arms
+  }
+  return {
+    engine: bench.status().engine,
+    preset: bench.status().preset,
+    legs,
+    probe: summary,
+    gpuMs: gpu.length ? { p50: r2(qs(gpu, 0.5)), p95: r2(qs(gpu, 0.95)), max: r2(Math.max(...gpu)), samples: gpu.length } : null,
+    grass,
+    census: bench.census(),
+  }
+}
+
+/** One console table of a result (the CLI's summary and a person's own run). */
+export function routeReport(r: RouteResult): string {
+  const p = r.probe
+  const lines = [
+    `route ${r.engine} ${r.preset}: ${p.frames} frames in ${p.seconds} s (${p.fps} fps); frame p50 ${p.frameMs.p50} p95 ${p.frameMs.p95} p99 ${p.frameMs.p99} max ${p.frameMs.max} ms; >33 ms: ${p.over33}, >50 ms: ${p.over50}; gpu p50 ${r.gpuMs?.p50 ?? '-'} p95 ${r.gpuMs?.p95 ?? '-'}`,
+    `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.reached ? '' : ' (not reached)'}`).join(', ')}`,
+    `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
+    `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}`,
+    'system | mean | p50 | p95 | max | in spikes (ms, frames)',
+    ...p.systems.slice(0, 40).map(s => `${s.label} | ${s.meanMs} | ${s.p50} | ${s.p95} | ${s.max} | ${s.inSpikesMs} (${s.spikeFrames})`),
+    'worst frames:',
+    ...p.spikes.slice(0, 15).map(s => `  ${s.atS}s ${s.tag} ${s.ms} ms (cpu ${s.cpu}, outside ${s.outside}): ${s.top.map(([k, v]) => `${k} ${v}`).join(', ')}`),
+  ]
+  return lines.join('\n')
+}

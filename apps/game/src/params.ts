@@ -1,7 +1,5 @@
 /** URL parameters (see README "URL parameters"). */
 export interface Params {
-  /** ?engine=webgl forces WebGL2. */
-  webgl: boolean
   /** ?mock=1: in-browser mock server instead of /api + /ws. */
   mock: boolean
   /** ?skip=1: skip the logo splash. */
@@ -18,6 +16,8 @@ export interface Params {
   fxlab: boolean
   /** ?charbench=1: the character bench, `window.__sroCharBench` (docs/CHARACTERS.md §9, apps/game/src/debug/charbench.ts). */
   charbench: boolean
+  /** ?bench=1: the frame probe and the route bench, `__sroCharBench.route()` (docs/PERF_OVERALL.md; the char bench's page). */
+  bench: boolean
   /** ?rarelab=1: the rare-weapon lab, `window.__sroRareLab` (docs/RARITY.md §9, apps/game/src/debug/rarity-lab.ts). */
   rarelab: boolean
 }
@@ -30,7 +30,6 @@ export function readParams(search = location.search): Params {
   }
   const mock = on('mock')
   return {
-    webgl: (q.get('engine') ?? '').toLowerCase().startsWith('webgl'),
     mock,
     skipSplash: on('skip') || (mock && on('auto')),
     auto: mock && on('auto'),
@@ -39,6 +38,7 @@ export function readParams(search = location.search): Params {
     kit: on('kit'),
     fxlab: mock && on('fxlab'),
     charbench: on('charbench'),
+    bench: on('bench'),
     rarelab: on('rarelab'),
   }
 }

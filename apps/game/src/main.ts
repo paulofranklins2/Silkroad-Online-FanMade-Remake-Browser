@@ -2,8 +2,9 @@ import { App } from './app.ts'
 import { GameAudio, setGameAudio } from './audio/index.ts'
 import { installUiSounds } from './audio/ui-sounds.ts'
 import { loadCatalog } from './content/catalog.ts'
-import { createEngine, gpuLimitsParam } from './engine.ts'
-import { engineChoice, installGpuLossGuard, setBootedEngine, webglAfterLoss } from './gpu-loss.ts'
+import { createEngine, WebGpuUnavailableError, type EngineResult } from './engine.ts'
+import { showSoftwareGpuWarning, showWebGpuRequired } from './gpu-help.ts'
+import { installGpuLossGuard } from './gpu-loss.ts'
 import { installBlackWatchdog } from './gpu-watchdog.ts'
 import { resumeSession } from './net/resume.ts'
 import { createTransport } from './net/transport.ts'
@@ -27,18 +28,23 @@ async function main(): Promise<void> {
   document.body.append(boot)
 
   const canvas = document.getElementById('canvas') as HTMLCanvasElement
-  // The engine (gpu-loss.ts engineChoice): ?engine=webgl, Options → Graphics mode, this tab's WebGL2 fallback after a
-  // lost WebGPU device or black output, else WebGPU ('auto' skips a software adapter).
-  const backend = settings.get().graphics.backend
-  const choice = engineChoice(params.webgl, backend, webglAfterLoss())
-  const [engineResult, catalog, art] = await Promise.all([createEngine(canvas, choice.webgpu, gpuLimitsParam(), choice.avoidSoftware), loadCatalog(), Art.load(), loadGameText()])
-  if (choice.why === 'fallback') engineResult.note = 'WebGPU off for this tab after a graphics device loss or black output'
-  else if (choice.why === 'setting' && !choice.webgpu) engineResult.note = 'WebGPU off by Options → Graphics mode'
-  setBootedEngine({ kind: engineResult.kind, backend, why: choice.why })
+  // WebGPU only (Overall Pass item 0): without it the game shows what to fix instead of starting (gpu-help.ts).
+  const [made, catalog, art] = await Promise.all([createEngine(canvas).catch((err: unknown) => ({ err })), loadCatalog(), Art.load(), loadGameText()])
+  if ('err' in made) {
+    const err = made.err
+    boot.remove()
+    console.error('[engine] WebGPU unavailable:', err)
+    showWebGpuRequired(err instanceof WebGpuUnavailableError ? err.reason : 'failed', err instanceof Error ? err.message : String(err))
+    return
+  }
+  const engineResult: EngineResult = made
   // Options → Graphics → Resolution (UX_GAPS R4), now and on every change.
   applyGraphics(engineResult.engine)
   const fonts = await loadFonts(art.manifest)
-  if (engineResult.note) console.info(`[engine] ${engineResult.note}`)
+  if (engineResult.software) {
+    console.warn('[engine] WebGPU runs on a software adapter: no graphics card in use')
+    showSoftwareGpuWarning(art)
+  }
   console.info(`[engine] ${engineResult.kind}; characters from ${catalog.source} (${catalog.characters.length}); ui art ${art.manifest ? 'loaded' : 'missing'}; fonts ${Object.entries(fonts).map(([k, ok]) => `${k}:${ok ? 'ok' : 'fallback'}`).join(' ')}`)
 
   // Sound (docs/SOUND.md §5): music, effects and their settings; `?mute=1` mutes this page only.
@@ -49,7 +55,7 @@ async function main(): Promise<void> {
   const app = new App(engineResult.engine, engineResult.kind, params, transport, catalog, art, audio.music!, audio)
   // A lost graphics device reloads straight back into the world instead of leaving it black (gpu-loss.ts).
   const gpuGuard = installGpuLossGuard(app, engineResult.kind)
-  // A 3D view that renders nothing without a loss: WebGL2 once per tab, then the help (gpu-watchdog.ts).
+  // A 3D view that renders nothing without a loss: the help (gpu-watchdog.ts).
   installBlackWatchdog(app.engine, detail => gpuGuard.blackOutput(detail))
   app.register('splash', splashScreen)
   app.register('login', loginScreen)
@@ -83,7 +89,7 @@ async function main(): Promise<void> {
   }
 
   if (params.fxlab) await import('./debug/fx-lab.ts').then(m => m.installFxLab(app), err => console.error('[fxlab] failed to load', err))
-  if (params.charbench) await import('./debug/charbench.ts').then(m => m.installCharBench(app), err => console.error('[charbench] failed to load', err))
+  if (params.charbench || params.bench) await import('./debug/charbench.ts').then(m => m.installCharBench(app), err => console.error('[charbench] failed to load', err))
   if (params.rarelab) await import('./debug/rarity-lab.ts').then(m => m.installRarityLab(app), err => console.error('[rarelab] failed to load', err))
   // A refresh keeps you logged in: the tab's saved token goes straight to character select (UX_GAPS L1).
   const resumed = await resumeSession(app).catch(err => {

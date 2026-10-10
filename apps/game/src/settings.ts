@@ -85,11 +85,10 @@ export type GrassStyle = 'retail' | 'field'
  */
 export type TreesSetting = 'new' | 'retail'
 /**
- * Options → Graphics → Graphics mode (gpu-loss.ts `engineChoice`): 'auto' is WebGPU unless this tab fell back to WebGL2
- * or the WebGPU adapter is a software one; 'webgl2' is the compatibility mode. Read at boot (applies after a reload);
- * `?engine=webgl` wins.
+ * The renderer setting, kept so saved settings stay readable: the game runs WebGPU only (Overall Pass item 0), so
+ * there is no Options row any more; a saved 'webgl2' (the old compatibility mode) loads as 'auto'.
  */
-export type GraphicsBackend = 'auto' | 'webgpu' | 'webgl2'
+export type GraphicsBackend = 'auto' | 'webgpu'
 
 /**
  * Wave 9 "Advanced" graphics overrides (docs/WAVE_PLAN3.md §4.3): each is 'auto' (the preset's value, render/quality.ts
@@ -270,8 +269,8 @@ export const WILDLIFE_SETTINGS: readonly WildlifeSetting[] = ['on', 'off']
 export const TOWN_LIFE_SETTINGS: readonly TownLifeSetting[] = ['auto', 'off', 'low', 'full']
 /** Wave 12: Options → Graphics → Trees. */
 export const TREES_SETTINGS: readonly TreesSetting[] = ['new', 'retail']
-/** Options → Graphics → Graphics mode. */
-export const GRAPHICS_BACKENDS: readonly GraphicsBackend[] = ['auto', 'webgpu', 'webgl2']
+/** The renderer setting's values (a saved 'webgl2' is not one: it loads as 'auto'). */
+export const GRAPHICS_BACKENDS: readonly GraphicsBackend[] = ['auto', 'webgpu']
 /** Wave 9B (TX-R): the Options texture tiers (pbr/maps.ts TEXTURE_SETTINGS). */
 export const TEXTURE_SETTINGS: readonly TextureSetting[] = WR_TEXTURE_SETTINGS
 export const ADVANCED_CHOICES: { readonly [K in Exclude<keyof AdvancedGraphics, 'toneMap'>]: readonly AdvancedGraphics[K][] } = {

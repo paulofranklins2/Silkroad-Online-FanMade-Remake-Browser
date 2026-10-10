@@ -26,6 +26,8 @@ import { CHAR_LOD, type CharLodSwitches } from '../world/char-lod.ts'
 import type { CrowdBudget } from '../world/crowd-budget.ts'
 import { PERF } from '../world/perf.ts'
 import { WORLD_FEATURES, type WorldFeature, type WorldFeatureContext, type WorldFeatureFactory } from '../world/features.ts'
+import { FrameProbe } from './frame-probe.ts'
+import { instrumentClasses, routeReport, runRoute, type RouteOptions, type RouteResult } from './route-bench.ts'
 
 export interface BenchView {
   /** Camera orbit around the bench character: alpha (rad), beta (rad), radius (m). */
@@ -91,6 +93,8 @@ export class CharBench {
   private recs: NonNullable<CharBench['rec']>[] = []
   private hooked = false
   readonly results: unknown[] = []
+  /** The frame probe (docs/PERF_OVERALL.md): per-system times; its wrappers are installed with the bench. */
+  readonly probe = new FrameProbe()
 
   constructor(private readonly app: App) {}
 
@@ -104,6 +108,7 @@ export class CharBench {
     ;(window as unknown as { __sroCharBench?: CharBench }).__sroCharBench = this
     // the perf audit's A/B switches (docs/PERF_AUDIT.md; the driver's --ab <name>)
     ;(window as unknown as { __sroPerf?: typeof PERF }).__sroPerf = PERF
+    instrumentClasses(this.probe)
     console.info('[charbench] ready: await __sroCharBench.measure("x"); __sroCharBench.census(); __sroCharBench.view("mid")')
   }
 
@@ -542,6 +547,18 @@ export class CharBench {
     }
     this.knobs({ __all: true, crowd: true, hideOthers: false })
     return out
+  }
+
+  /**
+   * The route bench (debug/route-bench.ts, docs/PERF_OVERALL.md): plaza spin, walk out of Jangan into the fields with
+   * the camera turning, fields spin, then the grass on / off; the probe's summary per system. Logs the report.
+   */
+  async route(o: RouteOptions = {}): Promise<RouteResult> {
+    if (!this.ctx) throw new Error('not in the world')
+    const r = await runRoute(this.ctx, this.probe, this, o)
+    this.results.push(r)
+    console.info('[bench] ' + routeReport(r))
+    return r
   }
 
   /** Progress lines of the last run(). */

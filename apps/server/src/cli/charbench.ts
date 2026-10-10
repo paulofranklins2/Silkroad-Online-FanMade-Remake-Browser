@@ -10,7 +10,10 @@
  *    interleaved) and saves the results, then the screenshots.
  *
  * Options:
- *   --configs webgpu-medium,webgl2-medium,webgpu-low   engine-preset pairs (engine: webgpu | webgl2)
+ *   --configs webgpu-medium,webgpu-low   engine-preset pairs (engine: webgpu; the game is WebGPU only)
+ *   --route                          the route bench (docs/PERF_OVERALL.md): plaza spin, walk out of Jangan into the
+ *                                    fields with the camera turning, fields spin, grass on/off; per-system frame probe
+ *                                    (apps/game/src/debug/frame-probe.ts). Unminified build; use with --bots 0..20
  *   --bots 100  --rounds 3  --frames 300  --views close,mid,far  --settle 2000 (ms after a variant switch)
  *   --variants before,after          named knob sets: before = every CHAR_LOD rule off (HEAD before P0), after = all on,
  *                                    p0 = the P0 rules on, the crowd tier (P1a) off,
@@ -53,7 +56,7 @@ const FRAMES = Number(opt('frames', '300'))
 const SETTLE_MS = Number(opt('settle', '2000'))
 const VIEWS = opt('views', 'close,mid,far').split(',')
 const VARIANTS = opt('variants', 'before,after').split(',')
-const CONFIGS = opt('configs', 'webgpu-medium,webgl2-medium,webgpu-low').split(',')
+const CONFIGS = opt('configs', 'webgpu-medium,webgpu-low').split(',')
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 const OUT = resolve(opt('out', join(REPO, 'work/tmp/charbench', stamp)))
 const SHOTS = opt('shots', '')
@@ -79,7 +82,11 @@ const LICENSED_SHOTS = opt('licensed-shots', '')
 const MATERIAL_SHOTS = opt('material-shots', '')
 /** --steps <file.json>: a look lab, [{ js?, shot?, wait? }] run in order after the scene is ready (shots into --out). */
 const STEPS = opt('steps', '')
-const DIST = join(WORK, PROFILE ? 'dist-prof' : 'dist')
+/** --route: the route bench instead of the view x variant plan (see the header). */
+const ROUTE = flag('route')
+/** Unminified: the CPU profile's function names, the route probe's observer labels. */
+const UNMINIFIED = !!PROFILE || ROUTE
+const DIST = join(WORK, UNMINIFIED ? 'dist-prof' : 'dist')
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 /** The whole machine's CPU use (%) every 2 s while the bench runs (the bench shares the machine with the server, its bots and whatever else runs). */
 const cpuLog: { at: number; pct: number; freeMB: number }[] = []
@@ -128,7 +135,7 @@ async function main(): Promise<void> {
     root: GAME,
     cacheDir: join(WORK, '.vite'),
     logLevel: 'warn' as const,
-    build: { outDir: DIST, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: DIST, emptyOutDir: true, ...(UNMINIFIED ? { minify: false } : {}) },
   }
   if (!flag('no-build') || !existsSync(join(DIST, 'index.html'))) {
     log('building the game (production) into ' + DIST)
@@ -164,11 +171,21 @@ async function main(): Promise<void> {
   try {
     for (let ci = 0; ci < CONFIGS.length; ci++) {
       const [engine, preset] = CONFIGS[ci]!.split('-') as [string, string]
-      const page = await openChrome({ webgl: engine === 'webgl2', preset, headed: flag('headed') })
+      if (engine !== 'webgpu') throw new Error(`engine ${engine}: the game runs WebGPU only`)
+      const page = await openChrome({ preset, headed: flag('headed') })
       try {
         log(`${CONFIGS[ci]}: entering the world (chrome pid ${page.pid})`)
         await page.enterWorld()
         const adapter = await page.ev('__sroCharBench.adapter()')
+        if (ROUTE) {
+          const t0 = Date.now()
+          const r = (await page.ev(`__sroCharBench.route()`, 1_800_000)) as Record<string, any>
+          writeFileSync(join(OUT, `${CONFIGS[ci]}.route.json`), JSON.stringify({ config: CONFIGS[ci], adapter, machineCpu: cpuDuring(t0, Date.now()), ...r }, null, 1))
+          const report = page.logs.filter(l => l.includes('[bench] route')).at(-1) ?? ''
+          summary.push(`## ${CONFIGS[ci]}`, report, `machine CPU during the run: ${JSON.stringify(cpuDuring(t0, Date.now()))}`, '')
+          log(`${CONFIGS[ci]}: route done (${r.probe?.frames} frames, p95 ${r.probe?.frameMs?.p95} ms, >33 ms ${r.probe?.over33})`)
+          continue
+        }
         const st = await page.ev(`__sroCharBench.prepare({ minPlayers: ${Math.floor(BOTS * 0.95)} })`)
         log(`${CONFIGS[ci]}: ${JSON.stringify(st)}`)
         if (PILOT_SHOTS) {
@@ -377,7 +394,7 @@ interface Page {
 // `--debug-port`: a second bench on the same machine (another helper's on 9611) needs its own CDP port
 let nextDebugPort = Number(opt('debug-port', '9611'))
 
-async function openChrome(o: { webgl: boolean; preset: string; headed: boolean }): Promise<Page> {
+async function openChrome(o: { preset: string; headed: boolean }): Promise<Page> {
   const port = nextDebugPort++
   const dir = mkdtempSync(join(tmpdir(), 'sro-charbench-chrome-'))
   const chrome: ChildProcess = spawn(
@@ -456,7 +473,7 @@ async function openChrome(o: { webgl: boolean; preset: string; headed: boolean }
   await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false })
   const settings = { graphics: { preset: o.preset, resolution: 1, firstRun: false } }
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('sro.settings', ${JSON.stringify(JSON.stringify(settings))}) } catch (e) {}` })
-  await send('Page.navigate', { url: `http://localhost:${PAGE_PORT}/?charbench=1&skip=1&mute=1${o.webgl ? '&engine=webgl' : ''}${QUERY ? '&' + QUERY : ''}` })
+  await send('Page.navigate', { url: `http://localhost:${PAGE_PORT}/?charbench=1&bench=1&skip=1&mute=1${QUERY ? '&' + QUERY : ''}` })
   return {
     pid: chrome.pid,
     logs,

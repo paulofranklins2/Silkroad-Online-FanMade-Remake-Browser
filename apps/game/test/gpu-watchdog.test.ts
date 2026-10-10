@@ -194,10 +194,11 @@ describe('BlackWatchdog', () => {
 })
 
 describe('the graphics mode setting and the software adapter check', () => {
-  it('persists auto / webgpu / webgl2 and defaults to auto', () => {
-    expect(GRAPHICS_BACKENDS).toEqual(['auto', 'webgpu', 'webgl2'])
+  it('persists auto / webgpu, defaults to auto, and a saved webgl2 (WebGPU only now) loads as auto', () => {
+    expect(GRAPHICS_BACKENDS).toEqual(['auto', 'webgpu'])
     expect(defaultSettings().graphics.backend).toBe('auto')
-    expect(normalizeSettings({ v: 1, graphics: { backend: 'webgl2' } }).graphics.backend).toBe('webgl2')
+    expect(normalizeSettings({ v: 1, graphics: { backend: 'webgl2' } }).graphics.backend).toBe('auto')
+    expect(normalizeSettings({ v: 1, graphics: { backend: 'webgpu' } }).graphics.backend).toBe('webgpu')
     expect(normalizeSettings({ v: 1, graphics: { backend: 'vulkan' } }).graphics.backend).toBe('auto')
     expect(normalizeSettings({ v: 1, graphics: {} }).graphics.backend).toBe('auto')
   })
@@ -213,11 +214,11 @@ describe('the graphics mode setting and the software adapter check', () => {
 
   it('every string the recovery and the help use is in the English table', () => {
     const keys = [
-      'gpu.blackWebgl', 'gpu.blackRestored', 'gpu.modeApplied', 'gpu.reloaded', 'gpu.reloadingWebgl', 'gpu.stopped', 'gpu.reload',
+      'gpu.reloaded', 'gpu.reloading', 'gpu.restored', 'gpu.stopped', 'gpu.reload',
       'gpu.help.title', 'gpu.help.intro', 'gpu.help.detected', 'gpu.help.fixBrowser', 'gpu.help.fixGpuProcess',
-      'gpu.help.fixCompatibility', 'gpu.help.compatibility', 'gpu.help.close', 'gpu.help.link', 'menu.blackScreen',
-      'options.backend', 'options.backend.auto', 'options.backend.webgpu', 'options.backend.webgl2', 'options.backend.ask',
-      'options.backend.reloadNow', 'options.backend.later', 'options.backend.pending', 'options.backend.fallback',
+      'gpu.help.close', 'gpu.help.link', 'menu.blackScreen',
+      'gpu.need.title', 'gpu.need.missing', 'gpu.need.noAdapter', 'gpu.need.failed', 'gpu.need.fixBrowser', 'gpu.need.fixDriver',
+      'gpu.need.fixAcceleration', 'gpu.software.title', 'gpu.software.text',
     ]
     const table = en as Record<string, string>
     for (const k of keys) {

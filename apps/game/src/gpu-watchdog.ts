@@ -3,7 +3,7 @@
  * Now and then, during normal play in the world, the frame the engine just drew is read back as an 8×8 downscale
  * (`drawImage(canvas)` into a tiny 2D canvas, from the engine's onEndFrameObservable: the same task as the render, so
  * the WebGPU current texture and the WebGL drawing buffer are still valid) and judged (`judgeSample`). Several failed
- * samples in a row hand over to gpu-loss.ts `blackOutput`: WebGL2 once per tab session, then the help (gpu-help.ts).
+ * samples in a row hand over to gpu-loss.ts `blackOutput`: the help (gpu-help.ts).
  *
  * What it can detect: a canvas the engine leaves empty (every sample fully transparent: nothing was drawn, the
  * swap-chain texture is dead, or the browser's snapshot of the canvas comes back empty) at any time of day, and a

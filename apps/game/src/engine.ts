@@ -1,4 +1,4 @@
-import { Engine, WebGPUEngine, type AbstractEngine } from '@babylonjs/core'
+import { WebGPUEngine, type AbstractEngine } from '@babylonjs/core'
 import { gpuInfoFromEngine, type GpuInfo } from '@sro/world-render'
 import { SOFTWARE_GPU } from './settings.ts'
 
@@ -6,10 +6,11 @@ export type EngineKind = 'WebGPU' | 'WebGL2' | 'WebGL1'
 
 export interface EngineResult {
   engine: AbstractEngine
+  /** Always 'WebGPU': the game runs WebGPU only (Overall Pass item 0); the type stays wide for the shared render code. */
   kind: EngineKind
   canvas: HTMLCanvasElement
-  /** Why WebGPU was not used, if it was not. */
-  note?: string
+  /** The adapter is a software or fallback one (`isSoftwareAdapter`): it runs, slowly, and the game warns. */
+  software: boolean
   /**
    * Wave 9 (docs/WAVE_PLAN3.md D10): the device's limits and features and the adapter's identity, for the first-run
    * preset (GAME) and World (LoadWorldOptions.gpu).
@@ -33,17 +34,12 @@ export type GpuLimitsMode = 'max' | 'default'
 export const WANTED_GPU_FEATURES = ['texture-compression-bc', 'texture-compression-astc', 'texture-compression-etc2', 'timestamp-query'] as const
 
 /**
- * Ask for the discrete GPU on dual-GPU laptops (the friends play on gaming laptops; the coast doc's handoff). WebGPU:
- * requestAdapter's powerPreference (also passed to Babylon, which requests the engine's own adapter with its options);
- * WebGL2: the context attribute. Chrome on Windows ignores it for WebGPU and says so once in the console (it picks the
+ * Ask for the discrete GPU on dual-GPU laptops (the friends play on gaming laptops; the coast doc's handoff):
+ * requestAdapter's powerPreference (also passed to Babylon, which requests the engine's own adapter with its options).
+ * Chrome on Windows ignores it for WebGPU and says so once in the console (it picks the
  * high-performance adapter by the OS's per-app setting); it is harmless there.
  */
 export const GPU_POWER_PREFERENCE = 'high-performance' as const
-
-/** The WebGL2 fallback's engine options: HEAD's plus the high-performance GPU request. */
-export function webglEngineOptions(): { stencil: boolean; adaptToDeviceRatio: boolean; powerPreference: WebGLPowerPreference } {
-  return { stencil: true, adaptToDeviceRatio: true, powerPreference: GPU_POWER_PREFERENCE }
-}
 
 /** The part of a GPUAdapter the options read (tests pass a fake). */
 export interface AdapterLike {
@@ -56,8 +52,8 @@ export interface AdapterLike {
 /**
  * A WebGPU adapter that is no GPU: the browser's fallback adapter (SwiftShader in Chrome, what it hands out when the
  * GPU is blocklisted or its process keeps crashing) or a software renderer the strings name (settings.ts SOFTWARE_GPU:
- * SwiftShader, llvmpipe, Microsoft Basic Render Driver). The 'auto' graphics mode runs WebGL2 there (gpu-loss.ts
- * `engineChoice`).
+ * SwiftShader, llvmpipe, Microsoft Basic Render Driver). The game runs there but warns (gpu-help.ts
+ * `showSoftwareGpuWarning`): every frame is drawn by the CPU.
  */
 export function isSoftwareAdapter(adapter: AdapterLike | null | undefined): boolean {
   if (!adapter) return false
@@ -123,48 +119,50 @@ async function preQueryAdapter(): Promise<AdapterLike | null> {
   }
 }
 
-/**
- * Prefers WebGPU and falls back to WebGL2 (a canvas that already handed out a WebGPU context is replaced first).
- * Same logic as apps/viewer/src/engine.ts, kept separate so the two apps evolve independently. Wave 9: the WebGPU
- * device gets the adapter's full limits (unless `?gpuLimits=default`) and the wanted optional features it offers.
- * `avoidSoftware` (the 'auto' graphics mode): a software or fallback WebGPU adapter (`isSoftwareAdapter`) runs WebGL2.
- */
-export async function createEngine(canvas: HTMLCanvasElement, preferWebGPU = true, gpuLimits: GpuLimitsMode = gpuLimitsParam(), avoidSoftware = false): Promise<EngineResult> {
-  let note: string | undefined
-  if (!preferWebGPU) {
-    note = 'WebGPU disabled by ?engine=webgl'
-  } else {
-    let engine: WebGPUEngine | undefined
-    try {
-      const supported = await WebGPUEngine.IsSupportedAsync
-      const adapter = supported ? await preQueryAdapter() : null
-      if (adapter && avoidSoftware && isSoftwareAdapter(adapter)) {
-        const i = adapter.info
-        note = `WebGPU skipped: software adapter (${[i?.vendor, i?.architecture, i?.description].filter(Boolean).join(' ') || 'fallback'})`
-      } else if (supported) {
-        engine = new WebGPUEngine(canvas, webgpuEngineOptions(adapter, gpuLimits))
-        await engine.initAsync()
-        trimBindGroupCache(engine)
-        const gpu = gpuInfoFromEngine(engine, {
-          isFallbackAdapter: !!(adapter?.info?.isFallbackAdapter ?? adapter?.isFallbackAdapter),
-          ...(adapter?.info?.vendor ? { vendor: adapter.info.vendor } : {}),
-          ...(adapter?.info?.architecture ? { architecture: adapter.info.architecture } : {}),
-        })
-        return { engine, kind: 'WebGPU', canvas, gpu }
-      }
-      note ??= 'WebGPU is not available in this browser'
-    } catch (err) {
-      note = `WebGPU init failed: ${err instanceof Error ? err.message : String(err)}`
-      try {
-        engine?.dispose()
-      } catch {
-        // ignore: the engine never finished initialising
-      }
-      const fresh = canvas.cloneNode(false) as HTMLCanvasElement
-      canvas.replaceWith(fresh)
-      canvas = fresh
-    }
+/** Why the game cannot start its renderer: no WebGPU in this browser, no adapter (blocklisted GPU, hardware acceleration off), or the device failed. */
+export type WebGpuFailure = 'missing' | 'no-adapter' | 'failed'
+
+/** createEngine's error: the game needs WebGPU (main.ts shows gpu-help.ts `showWebGpuRequired`). */
+export class WebGpuUnavailableError extends Error {
+  constructor(readonly reason: WebGpuFailure, detail: string) {
+    super(detail)
+    this.name = 'WebGpuUnavailableError'
   }
-  const engine = new Engine(canvas, true, webglEngineOptions(), true)
-  return { engine, kind: engine.webGLVersion >= 2 ? 'WebGL2' : 'WebGL1', canvas, note, gpu: gpuInfoFromEngine(engine) }
+}
+
+/**
+ * The game's WebGPU engine (Overall Pass item 0: WebGPU only, no WebGL2 fallback). Same setup as
+ * apps/viewer/src/engine.ts, kept separate so the two apps evolve independently. Wave 9: the device gets the adapter's
+ * full limits (unless `?gpuLimits=default`) and the wanted optional features it offers. A software or fallback adapter
+ * runs (`software` in the result: the caller warns). Throws WebGpuUnavailableError when WebGPU is missing or fails.
+ */
+export async function createEngine(canvas: HTMLCanvasElement, gpuLimits: GpuLimitsMode = gpuLimitsParam()): Promise<EngineResult> {
+  let supported = false
+  try {
+    supported = typeof navigator !== 'undefined' && 'gpu' in navigator && (await WebGPUEngine.IsSupportedAsync)
+  } catch {
+    supported = false
+  }
+  if (!supported) throw new WebGpuUnavailableError('missing', 'WebGPU is not available in this browser')
+  const adapter = await preQueryAdapter()
+  if (!adapter) throw new WebGpuUnavailableError('no-adapter', 'WebGPU found no graphics adapter (GPU blocklisted, or hardware acceleration off)')
+  let engine: WebGPUEngine | undefined
+  try {
+    engine = new WebGPUEngine(canvas, webgpuEngineOptions(adapter, gpuLimits))
+    await engine.initAsync()
+  } catch (err) {
+    try {
+      engine?.dispose()
+    } catch {
+      // ignore: the engine never finished initialising
+    }
+    throw new WebGpuUnavailableError('failed', `WebGPU init failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  trimBindGroupCache(engine)
+  const gpu = gpuInfoFromEngine(engine, {
+    isFallbackAdapter: !!(adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter),
+    ...(adapter.info?.vendor ? { vendor: adapter.info.vendor } : {}),
+    ...(adapter.info?.architecture ? { architecture: adapter.info.architecture } : {}),
+  })
+  return { engine, kind: 'WebGPU', canvas, gpu, software: isSoftwareAdapter(adapter) }
 }

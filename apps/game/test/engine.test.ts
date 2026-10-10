@@ -52,12 +52,10 @@ for (const [app, m] of [['game', game], ['viewer', viewer]] as const) {
       expect(req(['texture-compression-astc-hdr'])).toEqual([])
     })
 
-    it('requests the high-performance GPU on both paths (dual-GPU laptops)', () => {
+    it('requests the high-performance GPU (dual-GPU laptops)', () => {
       expect(m.GPU_POWER_PREFERENCE).toBe('high-performance')
       expect(m.webgpuEngineOptions(null, 'max').powerPreference).toBe('high-performance')
       expect(m.webgpuEngineOptions(adapter([]), 'default').powerPreference).toBe('high-performance')
-      // WebGL2: HEAD's options plus the context attribute.
-      expect(m.webglEngineOptions()).toEqual({ stencil: true, adaptToDeviceRatio: true, powerPreference: 'high-performance' })
     })
   })
 }

@@ -8,6 +8,7 @@
  * Shown by gpu-loss.ts when the watchdog sees black output that switching cannot fix, and on request (Esc menu →
  * "Screen black?", the login screen's link). Non-blocking: a panel over the canvas, the HUD stays usable. One at a time.
  */
+import type { WebGpuFailure } from './engine.ts'
 import { t } from './i18n/index.ts'
 import type { Art } from './ui/art.ts'
 import { el } from './ui/dom.ts'
@@ -16,12 +17,8 @@ import { button } from './ui/kit/button.ts'
 export interface GpuHelpOptions {
   /** The watchdog saw it (the text says so); false: the player opened the help. */
   detected: boolean
-  /** WebGPU runs now: offer the compatibility mode (WebGL2 for this tab). */
-  webgpu: boolean
   /** Reloads the page (back into the world when there). */
   reload(): void
-  /** WebGL2 for this tab, then reload. */
-  compatibility(): void
 }
 
 let open: HTMLElement | null = null
@@ -37,14 +34,12 @@ export function showGpuHelp(art: Art, o: GpuHelpOptions): () => void {
     if (open === box) open = null
   }
   const buttons = el('div', 'gpu-help-buttons')
-  if (o.webgpu) buttons.append(button(art, { label: t('gpu.help.compatibility') }, () => o.compatibility()))
   buttons.append(button(art, { label: t('gpu.reload'), primary: true }, () => o.reload()), button(art, { label: t('gpu.help.close') }, close))
   box.append(
     el('div', 'gpu-help-title', t('gpu.help.title')),
     el('p', '', t(o.detected ? 'gpu.help.detected' : 'gpu.help.intro')),
     el('p', '', t('gpu.help.fixBrowser')),
     el('p', '', t('gpu.help.fixGpuProcess')),
-    ...(o.webgpu ? [el('p', '', t('gpu.help.fixCompatibility'))] : []),
     buttons,
   )
   document.body.append(box)
@@ -56,4 +51,46 @@ export function showGpuHelp(art: Art, o: GpuHelpOptions): () => void {
 export function closeGpuHelp(): void {
   open?.remove()
   open = null
+}
+
+/**
+ * The game needs WebGPU (Overall Pass item 0: no WebGL2 fallback): a full-screen page instead of the game when the
+ * browser has no WebGPU, finds no adapter, or the device fails (engine.ts WebGpuUnavailableError). Plain DOM (the UI
+ * art may not be loaded): what is wrong and how to fix it, a Reload button, and the technical detail.
+ */
+export function showWebGpuRequired(reason: WebGpuFailure, detail: string): HTMLElement {
+  const box = el('div', 'gpu-notice gpu-help gpu-required')
+  box.setAttribute('role', 'alert')
+  // full screen over the (empty) canvas and the boot text: nothing else can run
+  Object.assign(box.style, { inset: '0', top: '0', left: '0', transform: 'none', maxWidth: 'none', maxHeight: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: '100', borderRadius: '0', background: 'rgb(14, 11, 7)' })
+  const reload = el('button', '', t('gpu.reload'))
+  reload.type = 'button'
+  reload.addEventListener('click', () => location.reload())
+  const buttons = el('div', 'gpu-help-buttons')
+  buttons.append(reload)
+  box.append(
+    el('div', 'gpu-help-title', t('gpu.need.title')),
+    el('p', '', t(reason === 'missing' ? 'gpu.need.missing' : reason === 'no-adapter' ? 'gpu.need.noAdapter' : 'gpu.need.failed')),
+    el('p', '', t('gpu.need.fixBrowser')),
+    el('p', '', t('gpu.need.fixDriver')),
+    el('p', '', t('gpu.need.fixAcceleration')),
+    buttons,
+    el('p', 'gpu-required-detail', detail),
+  )
+  for (const c of box.children) Object.assign((c as HTMLElement).style, { maxWidth: '560px', width: '100%' })
+  ;(box.lastElementChild as HTMLElement).style.opacity = '0.6'
+  document.body.append(box)
+  return box
+}
+
+/** A software WebGPU adapter (no real GPU): the game runs, very slowly; this says so and how to fix it. Closable. */
+export function showSoftwareGpuWarning(art: Art): () => void {
+  const box = el('div', 'gpu-notice gpu-help gpu-software')
+  box.setAttribute('role', 'status')
+  const close = () => box.remove()
+  const buttons = el('div', 'gpu-help-buttons')
+  buttons.append(button(art, { label: t('gpu.help.close'), primary: true }, close))
+  box.append(el('div', 'gpu-help-title', t('gpu.software.title')), el('p', '', t('gpu.software.text')), el('p', '', t('gpu.need.fixDriver')), el('p', '', t('gpu.need.fixAcceleration')), buttons)
+  document.body.append(box)
+  return close
 }
