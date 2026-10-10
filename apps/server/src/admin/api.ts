@@ -28,6 +28,7 @@ import * as characters from './characters.ts'
 import * as content from './content.ts'
 import { AdminError, bad, body, conflict, idOf, isObj, notFound, paging, search, segment, str } from './http.ts'
 import * as news from './news.ts'
+import { registerOpsAdmin } from './ops.ts'
 import * as updates from './updates.ts'
 import { adminEvents, adminRouteGroup } from './routes.ts'
 import type { SettingsState } from './settings.ts'
@@ -190,6 +191,7 @@ export class AdminApi {
     readonly startedAt: number,
   ) {
     this.table = routes(this)
+    registerOpsAdmin()
     const shaFile = join(REPO_ROOT, '.deploy-sha')
     const commit = existsSync(shaFile) ? readFileSync(shaFile, 'utf8').trim().slice(0, 64) || null : null
     this.release = { name: commit ? basename(REPO_ROOT) : 'dev', commit }

@@ -15,10 +15,12 @@ import './pages/boss.ts' // Play the Boss: EVENT_PAGES 'boss' (docs/PLAY_THE_BOS
 import './pages/siege.ts' // Siege of Jangan: EVENT_PAGES 'siege' (docs/SIEGE.md §11.4)
 import { jobsPage } from './pages/jobs.ts' // Jobs & Trade, and EVENT_PAGES 'jobs' (the Silk Caravan; docs/JOBS.md §9.5)
 import { auditPage } from './pages/audit.ts'
+import { opsPage } from './pages/ops.ts'
+import { lawTab } from './pages/siege-law.ts'
 import { serversPage } from './pages/servers.ts'
 import { updatesPage } from './pages/updates.ts'
 import { svgIcon, type IconName } from './icons.ts'
-import { badge, h, serverIsLive, serverLabel } from './ui.ts'
+import { badge, h, pageHeader, serverIsLive, serverLabel } from './ui.ts'
 
 /**
  * The admin panel (docs/ADMIN.md): a hash-routed single-page app. Every call goes to the active server profile (Servers
@@ -42,39 +44,67 @@ interface Route {
 const SECTIONS: { label: string; items: Route[] }[] = [
   { label: 'Overview', items: [{ path: 'dashboard', label: 'Dashboard', icon: 'dashboard', page: dashboardPage }] },
   {
-    label: 'Players',
+    label: 'Players & Accounts',
     items: [
       { path: 'accounts', label: 'Accounts', icon: 'accounts', page: accountsPage, detail: accountPage },
       { path: 'characters', label: 'Characters', icon: 'characters', page: charactersPage, detail: characterPage },
+      { path: 'guilds', label: 'Guilds', icon: 'guild', page: opsPage('Guilds', 'Every guild: look one up, rename it, disband it or expel a member.', 'guild', ['guilds']) },
     ],
   },
   {
-    label: 'Game data',
+    label: 'Moderation & Jail',
+    items: [{ path: 'law', label: 'Law & Stockade', icon: 'shield', page: lawPage }],
+  },
+  {
+    label: 'World & Events',
+    items: [
+      { path: 'events', label: 'Events', icon: 'events', page: eventsPage },
+      { path: 'sky', label: 'Clock, weather & storms', icon: 'weather', page: opsPage('Clock, weather & storms', 'The world clock, the weather and lightning, and storms. Changes reach every player at once.', 'weather', ['time', 'weather', 'storm']) },
+      { path: 'winter', label: 'Snow season', icon: 'snow', page: opsPage('Snow season', 'The winter look and its gameplay: snow cover and frost, the Ice Yeti, snowballs and holiday gifts.', 'snow', ['winter', 'wintergame', 'yeti', 'snowball', 'gift']) },
+      { path: 'world', label: 'NPCs & spawns', icon: 'world', page: worldPage },
+    ],
+  },
+  {
+    label: 'Economy & Jobs',
+    items: [{ path: 'jobs', label: 'Jobs & Trade', icon: 'swap', page: jobsPage }],
+  },
+  {
+    label: 'Items & Drops',
     items: [
       { path: 'items', label: 'Items', icon: 'items', page: itemsPage, detail: itemPage },
       { path: 'drops', label: 'Drops', icon: 'drops', page: dropsPage, detail: dropPage },
-      { path: 'world', label: 'NPCs & spawns', icon: 'world', page: worldPage },
+      { path: 'rarity', label: 'Rare weapons', icon: 'gem', page: opsPage('Rare weapons', 'The drop rates of the Seal of Star, Moon and Sun weapons.', 'gem', ['rarity']) },
+    ],
+  },
+  {
+    label: 'Climb & Quests',
+    items: [
+      { path: 'climb', label: 'The Climb', icon: 'mountain', page: opsPage('The Climb', 'The level cap and EXP curve, re-levelled monsters, and the death penalty (the cap itself is under Settings).', 'mountain', ['climb', 'penalty']) },
       { path: 'quests', label: 'Quests', icon: 'quests', page: questsPage },
     ],
   },
   {
-    label: 'Live',
+    label: 'Server & Deploy',
     items: [
-      { path: 'events', label: 'Events', icon: 'events', page: eventsPage },
-      { path: 'jobs', label: 'Jobs & Trade', icon: 'swap', page: jobsPage },
+      { path: 'settings', label: 'Settings', icon: 'settings', page: settingsPage },
       { path: 'news', label: "What's new", icon: 'megaphone', page: newsPage, detail: newsEntryPage },
+      { path: 'updates', label: 'Updates', icon: 'download', page: updatesPage },
+      { path: 'servers', label: 'Servers', icon: 'servers', page: serversPage },
     ],
   },
   {
-    label: 'System',
-    items: [
-      { path: 'settings', label: 'Settings', icon: 'settings', page: settingsPage },
-      { path: 'servers', label: 'Servers', icon: 'servers', page: serversPage },
-      { path: 'updates', label: 'Updates', icon: 'download', page: updatesPage },
-      { path: 'audit', label: 'Audit log', icon: 'audit', page: auditPage },
-    ],
+    label: 'Logs & Audit',
+    items: [{ path: 'audit', label: 'Audit log', icon: 'audit', page: auditPage }],
   },
 ]
+
+/** Warrants, the Garrison Stockade (jail) and offence records: the siege Law tab as its own page. */
+function lawPage(root: HTMLElement): void {
+  root.append(pageHeader({ text: 'Law & Stockade', icon: svgIcon('shield') }, 'Warrants, the Garrison Stockade (jail), offence records and pardons.'))
+  const body = h('div')
+  root.append(body)
+  lawTab(body)
+}
 
 const NAV = SECTIONS.flatMap((s) => s.items.map((r) => ({ ...r, section: s.label })))
 
@@ -178,6 +208,43 @@ function accountMenu() {
   }
 }
 
+/** Dark (default) or light, remembered per browser; without a choice the system's preference decides. */
+const THEME_KEY = 'sro-admin-theme'
+function storedTheme(): 'light' | 'dark' | null {
+  try {
+    const v = localStorage.getItem(THEME_KEY)
+    return v === 'light' || v === 'dark' ? v : null
+  } catch {
+    return null
+  }
+}
+function applyTheme(t: 'light' | 'dark'): void {
+  document.documentElement.dataset.theme = t
+}
+applyTheme(storedTheme() ?? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
+
+function themeButton(): HTMLButtonElement {
+  const btn = h('button', { class: 'icon-btn theme-btn', type: 'button' })
+  const paint = () => {
+    const light = document.documentElement.dataset.theme === 'light'
+    btn.replaceChildren(svgIcon(light ? 'moon' : 'sun'))
+    btn.setAttribute('aria-label', light ? 'Switch to the dark theme' : 'Switch to the light theme')
+    btn.title = btn.getAttribute('aria-label')!
+  }
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
+    applyTheme(next)
+    try {
+      localStorage.setItem(THEME_KEY, next)
+    } catch {
+      // private window: this tab only
+    }
+    paint()
+  })
+  paint()
+  return btn
+}
+
 function shell(): Frame {
   const nav = h(
     'nav',
@@ -202,7 +269,7 @@ function shell(): Frame {
   const content = h('main', { class: 'content', id: 'content', tabindex: '-1' })
   const skip = h('button', { class: 'skip-link', type: 'button' }, 'Skip to content')
   skip.addEventListener('click', () => content.focus())
-  const main = h('div', { class: 'main-col' }, h('header', { class: 'topbar' }, menuBtn, crumbs, h('div', { class: 'topbar-end' }, chipSlot, account.root)), content)
+  const main = h('div', { class: 'main-col' }, h('header', { class: 'topbar' }, menuBtn, crumbs, h('div', { class: 'topbar-end' }, chipSlot, themeButton(), account.root)), content)
   const layout = h('div', { class: 'layout' }, sidebar, backdrop, main)
   const drawer = (open: boolean, focus = true) => {
     const was = layout.classList.contains('nav-open')

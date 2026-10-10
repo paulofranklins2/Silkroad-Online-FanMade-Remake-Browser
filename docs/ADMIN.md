@@ -19,7 +19,10 @@ notice broadcast) instead of a second copy.
 | **Events** | Unique bosses (state, next spawn, spawn now, kill / despawn, timer), broadcast notices, and the scheduled events: *Play the Boss* (docs/PLAY_THE_BOSS.md §6) plugs in through §3.1 as the "Night of the Tiger" sub-page (`pages/boss.ts`): what runs now (the call and its volunteers, the offer, the hunt with her HP and the crowd) with Start a call, Force-pick and Stop; tabs for the weekly schedule (in the server's time zone), the numbers of §6.2 (default, bounds, per-field reset, the server's 422 messages inline, saves carry the rev), the event log with each event's timeline and volunteers in draw order, the lottery blocks and an eligibility check. |
 | **Audit log** | Every admin action (who, from where, what, when, before / after, ok) and, on a second tab, the GM command log (`gm_audit`). |
 | **Servers** | Server profiles (§2.1): which game server the panel edits. |
+| **Live operations** | §3.2: Guilds; Law & Stockade (the siege Law tab as its own page); Clock, weather & storms; Snow season (snow cover / frost / preview, winter gameplay, Ice Yeti, snowballs, gifts); Rare weapons; The Climb (and the death penalty). |
 | **Updates** | Self-updates from the public GitHub repository (docs/UPDATES.md): running and latest commit, the new "What's new" entries and commits, mode **Off / Notify only (default) / Install automatically**, check interval, install window, **Check now**, **Update now** (backup, countdown, restart through `pnpm serve`), progress and log, history, **Roll back** the last update. |
+
+**Layout** (Overall Pass, Oct 2026): a slate / navy dark theme with one indigo accent and a light theme (the sun / moon button in the top bar, remembered per browser, else the system choice). The sidebar groups the pages as Overview, Players & Accounts, Moderation & Jail, World & Events, Economy & Jobs, Items & Drops, Climb & Quests, Server & Deploy, Logs & Audit.
 
 Out of scope: changing roles (§4), deleting accounts or characters, editing skills or shops, the World Editor (host
 PC only), the Play the Boss gameplay itself (the panel drives its events and numbers, §3.1).
@@ -109,6 +112,7 @@ admin, 404, 409 conflict, 413 body too big, 422 content that does not validate (
 | `GET updates` | | `AdminUpdatesView` (docs/UPDATES.md §5) |
 | `PUT updates/settings` | `{values: {mode?, intervalMin?, windowEnabled?, windowStart?, windowEnd?, windowTz?, repoUrl?, branch?}}` | `AdminUpdatesView` |
 | `POST updates/check` / `install` / `cancel` / `rollback` | | 202 (the check runs in the background) / 202 / 200 / 202; 409 with the reasons when it cannot |
+| `GET ops`, `GET ops/:feature`, `POST ops/:feature` | `{action, params?}` | live operations (§3.2): `{features: [...]}` / one feature / `{ok, message, data?}`, 422 when the command refuses |
 
 ### 3.1 Extension points (Play the Boss)
 
@@ -131,6 +135,17 @@ POST `boss/settings/reset` `{paths?}`, POST `boss/start` `{callMinutes?}`, `boss
 `boss/eligibility?character=`. The handler re-checks the admin role and writes a `gm_audit` row (command `pilot`) per
 write, so the GM commands (`/unique pilot ...`) and the panel share one trail. The settings live in `pilot_settings`
 (migration 14) as a patch over content/uniques.json's defaults.
+
+### 3.2 Live operations (`ops`)
+
+`admin/ops.ts` registers the route group `ops` (§3.1) for the GM commands that need no character in the world:
+`time`, `weather`, `storm`, `winter`, `wintergame`, `yeti`, `snowball`, `gift`, `climb`, `penalty`, `rarity` (rates
+only) and `guilds`. Each feature lists its status (the command's status reply) and **fixed actions**: a template of
+literal words and typed parameters (`int` / `num` with bounds, `enum`, a character or guild `name`, a content `code`,
+`hh:mm`), each parameter exactly one argument, so nothing typed is ever a command line; the GM code validates again.
+Admin role only; one `gm_audit` row per action (the command's name, `admin: <reply>`) on top of the router's
+`admin_audit` row. The panel renders any subset as cards (`apps/admin/src/pages/ops.ts`, `opsPage(title, sub, icon,
+ids)`). Flight stays private (not listed). To add a feature: one `OPS_FEATURES` entry and its id on a page in `main.ts`.
 
 ## 4. Security model
 
