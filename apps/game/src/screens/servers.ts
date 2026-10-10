@@ -33,7 +33,9 @@ export function serversScreen(app: App): Screen {
   titleScene(app)
   const art = app.art
   const root = el('div', 'screen servers')
-  const logo = anchor(wordmark('small'), 0.5, 0.2)
+  // The wordmark sits right on top of the server window (it moves with it at every window size), as on the login screen.
+  const logo = wordmark('small')
+  logo.classList.add('login-logo')
   const win = art.window('outer/serverchange_window', 'server-window', WIN_W, WIN_H)
   const pane = place(el('div', 'server-pane'), [11, 54, 204, 290])
   const title = place(el('div', 'server-title kit-t-title', t('servers.title')), [6, 5, 238, 16])
@@ -48,8 +50,8 @@ export function serversScreen(app: App): Screen {
   const cancel = outerButton(art, t('servers.cancel'))
   const buttons = place(el('div', 'button-row'), [0, WIN_H + 10, WIN_W, 40])
   buttons.append(select, cancel)
-  win.append(pane, title, ...heads, list, scroll.root, buttons, place(status, [-35, WIN_H + 58, 320, 20]))
-  root.append(...bars(art, 'outer/blackbar_up_18', 'outer/blackbar_down_notext'), logo, anchor(win, 0.5, 0.56))
+  win.append(pane, title, ...heads, list, scroll.root, buttons, place(status, [-35, WIN_H + 58, 320, 20]), logo)
+  root.append(...bars(art, 'outer/blackbar_up_18', 'outer/blackbar_down_notext'), anchor(win, 0.5, 0.56))
   app.ui.append(root)
 
   let servers: ServerInfo[] = []

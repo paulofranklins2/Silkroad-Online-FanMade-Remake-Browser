@@ -270,7 +270,7 @@ body.has-scene #canvas {
   -webkit-text-fill-color: transparent;
 }
 
-/* The login wordmark rides on top of the login window (screens/login.ts). */
+/* The wordmark rides on top of the login and server windows (screens/login.ts, screens/servers.ts). */
 .login-logo {
   position: absolute;
   left: 50%;
