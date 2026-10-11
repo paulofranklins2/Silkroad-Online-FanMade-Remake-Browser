@@ -301,7 +301,10 @@ const EXT = CELLS + 2 * GRASS_BUSY_REACH
 function edgeWarp(x: number, z: number, out: Float64Array): void {
   let wx = 0, wz = 0
   for (let k = 0; k < WARP_OCTAVES.length; k++) {
-    const [f, share] = WARP_OCTAVES[k]!
+    // indexed, not destructured: called per feathered texel, the destructuring's iterators were ≈ 3.5 % of the game's
+    // garbage on the route bench (docs/PERF_OVERALL.md round 4)
+    const o = WARP_OCTAVES[k]!
+    const f = o[0], share = o[1]
     const a = share * 2 * GRASS_EDGE_WARP_M
     wx += (vnoise(x * f + 3.1 + k * 41.3, z * f + 7.7 - k * 13.9) - 0.5) * a
     wz += (vnoise(x * f + 17.9 - k * 29.1, z * f + 23.3 + k * 37.7) - 0.5) * a
