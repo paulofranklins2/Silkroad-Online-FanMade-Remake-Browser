@@ -26,7 +26,8 @@ const io: WorldIO = {
   },
 }
 
-async function until(cond: () => boolean, ms = 30_000): Promise<void> {
+// 75 s: under the whole suite (all CPU cores busy) the 9-region reload took over 30 s; the test timeout is 180 s
+async function until(cond: () => boolean, ms = 75_000): Promise<void> {
   const t0 = Date.now()
   while (!cond()) {
     if (Date.now() - t0 > ms) throw new Error('timed out')

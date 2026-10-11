@@ -78,21 +78,20 @@ describe.skipIf(!existsSync(join(OUT, 'jangan-fields', 'manifest.json')))('scatt
     const { sources, density, occupied } = load('jangan-fields')
     const densityOf = (id: number) => density.get(id) ?? 0
     let total = 0
-    let ms = 0
-    let chunks = 0
+    const times: number[] = []
     let empty = 0
     for (const src of sources) {
       let n = 0
       for (let c = 0; c < CHUNKS_PER_REGION; c++) {
         const t0 = performance.now()
         n += scatterChunk(src, c, densityOf, SCATTER_PRESETS.medium.fraction, occupied).count
-        ms += performance.now() - t0
-        chunks++
+        times.push(performance.now() - t0)
       }
       if (!n) empty++
       total += n
     }
-    const avg = ms / chunks
+    // the median chunk: a busy machine (the whole suite on every core) pre-empts single chunks and skewed the mean
+    const avg = [...times].sort((a, b) => a - b)[times.length >> 1]!
     console.log(`[scatter] jangan-fields medium: ${total} plants in ${sources.length} regions (${empty} bare), ${avg.toFixed(2)} ms per chunk`)
     expect(total).toBeGreaterThan(sources.length * 1000)
     expect(avg).toBeLessThan(3)
