@@ -1,5 +1,6 @@
 import { CLOSE_CODE, MAX_CHARACTER_SLOTS, PROTOCOL_VERSION } from '@sro/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { MSG_BURST } from '../src/connection.ts'
 import { Client, newAccount, sleep, startTestServer, type TestServer } from './helpers.ts'
 
 const SPAWN: [number, number, number] = [100, 2, -50]
@@ -212,7 +213,7 @@ describe('world', () => {
 
     const stop = await b.c.next('stop', (m) => m.id === id)
     expect(stop.pos).toEqual([100, SPAWN[1], -30])
-    expect(stop.yaw).toBeCloseTo(Math.atan2(dx, dz), 5)
+    expect(stop.yaw).toBeCloseTo(Math.atan2(dx, dz), 3)
     const travel = Math.hypot(dx, dz) / SPEED
     expect(Date.now() - redirect.move.startedAt).toBeGreaterThanOrEqual(travel * 1000 - 5)
 
@@ -334,8 +335,9 @@ describe('abuse', () => {
 
   it('rate limits message floods', async () => {
     const a = await Client.login(s.url, (await newAccount(s.url)).token)
-    for (let i = 0; i < 45; i++) a.send({ t: 'ping', n: i, clientTime: 0 })
-    expect((await a.next('error')).code).toBe('rate_limited')
+    // over the flood ceiling (MSG_BURST frames of any types at once)
+    for (let i = 0; i < MSG_BURST + 5; i++) a.send({ t: 'ping', n: i, clientTime: 0 })
+    expect((await a.next('error')).message).toBe('too many messages')
     await leaveAll(a)
   })
 })

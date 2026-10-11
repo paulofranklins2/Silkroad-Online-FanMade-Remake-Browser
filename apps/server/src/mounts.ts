@@ -8,7 +8,7 @@ import type { Gameplay, HitExtra } from './gameplay.ts'
 import type { GmResult } from './gm.ts'
 import { fail, takeFromBag, type Fail } from './inventory.ts'
 import type { Answer, GameplayMessage, GameplayModule, WarpReason } from './modules.ts'
-import type { Cos, Mob, Npc, Player } from './world.ts'
+import { wirePos, wireYaw, type Cos, type Mob, type Npc, type Player } from './world.ts'
 
 /**
  * Horses (docs/SYSTEMS_COMBAT.md §1.3; docs/WAVE_PLAN2.md D43, D49, D52; lane MR-S).
@@ -447,7 +447,7 @@ export class Mounts implements GameplayModule {
     if (Math.hypot(p.pos[0] - c.pos[0], p.pos[2] - c.pos[2]) > 0.01) {
       p.pos = [...c.pos]
       p.surface = c.surface ?? null
-      this.g.world.broadcastAbout(p, { t: 'stop', id: p.id, pos: [...p.pos], yaw: p.yaw })
+      this.g.world.broadcastAbout(p, { t: 'stop', id: p.id, pos: wirePos(p.pos), yaw: wireYaw(p.yaw) })
     }
     c.rider = p.id
     this.follow(c, p)
@@ -485,7 +485,7 @@ export class Mounts implements GameplayModule {
       const to = walk?.end ?? here
       p.pos = [to.x, Number.isFinite(to.y) ? to.y : here.y, to.z]
       p.surface = to.surface ?? here.surface
-      w.broadcastAbout(p, { t: 'stop', id: p.id, pos: [...p.pos], yaw: p.yaw })
+      w.broadcastAbout(p, { t: 'stop', id: p.id, pos: wirePos(p.pos), yaw: wireYaw(p.yaw) })
     }
     p.radius = PLAYER_BASE.radius
     this.g.refresh(p)

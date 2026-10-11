@@ -307,7 +307,7 @@ describe.skipIf(!FIELDS || !JANGAN)('WORLD_EXPORT=jangan-fields on the real expo
     const warp = await a.c.next('warp', (m) => m.id === a.id)
     expect(warp.pos[0]).toBeCloseTo(GATE_CH.x, 3)
     expect(warp.pos[2]).toBeCloseTo(GATE_CH.z, 3)
-    expect(warp.pos[1]).toBeCloseTo(GATE_CH.y, 3)
+    expect(warp.pos[1]).toBeCloseTo(GATE_CH.y, 2)
     expect(s.ctx.data.inSafeArea('jangan', warp.pos[0], warp.pos[2])).toBe(true)
     a.c.close()
     await a.c.closed

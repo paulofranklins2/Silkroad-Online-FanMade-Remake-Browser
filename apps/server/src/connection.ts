@@ -18,6 +18,7 @@ import {
 } from '@sro/shared'
 import type { WebSocket } from 'ws'
 import { TokenBucket, hashToken } from './auth.ts'
+import { dropHoldsBody } from './resume.ts'
 import { routeChat } from './chat.ts'
 import { knob } from './config.ts'
 import type { Appearance, CharacterRow } from './db.ts'
@@ -27,9 +28,14 @@ import { VISIBLE_SLOTS } from './inventory.ts'
 import type { NavPoint } from './nav.ts'
 import { WARP_SEARCH_M, visibleEquipPlus, type Player } from './world.ts'
 
-/** Per-connection message budget. */
-const MSG_RATE = 20
-const MSG_BURST = 40
+/**
+ * Per-connection flood ceiling over all message types (docs/NETWORK_AUDIT.md N3). Every type also has its own budget
+ * (CLIENT_RATE_LIMITS, MESSAGE_RATE_LIMITS below), so this only catches a client sending everything at once: a player
+ * walking with the keys (moveTo 10/s), fighting, chatting and pinging stays far below it. An earlier 20/s shared
+ * budget let one stream (flight input at 20/s) starve every other message and strike the socket closed.
+ */
+export const MSG_RATE = 60
+export const MSG_BURST = 120
 /** Chat budget: 1 line/s sustained, bursts of 5. */
 const CHAT_RATE = 1
 const CHAT_BURST = 5
@@ -56,6 +62,24 @@ const RESERVED_NAMES = new Set([
 const RESERVED_PREFIX = /^(gm|admin|administrator|gamemaster|moderator|mod|staff|system|sys|server)(_|\d)/i
 
 const GAMEPLAY_SET = new Set<string>(GAMEPLAY_REQUESTS)
+
+/**
+ * Budgets of the non-gameplay messages (gameplay requests use CLIENT_RATE_LIMITS). Over its budget a message is dropped
+ * without a strike: moveTo (the WASD stream is 10/s, burst 3; a click walk resends every 250 ms) and ping silently,
+ * the lobby requests with error rate_limited. Chat and gm keep their own buckets.
+ */
+export const MESSAGE_RATE_LIMITS: Readonly<Partial<Record<ClientMessage['t'], { perSecond: number; burst: number }>>> = {
+  moveTo: { perSecond: 15, burst: 15 },
+  ping: { perSecond: 2, burst: 4 },
+  charList: { perSecond: 2, burst: 5 },
+  nameCheck: { perSecond: 5, burst: 10 },
+  charCreate: { perSecond: 5, burst: 20 },
+  charDelete: { perSecond: 2, burst: 10 },
+  enterWorld: { perSecond: 1, burst: 3 },
+  leaveWorld: { perSecond: 1, burst: 3 },
+}
+/** Over budget, these are dropped without any answer (the client sends them on a timer; an answer would be noise). */
+const SILENT_DROP = new Set<string>(['moveTo', 'ping'])
 
 function isGameplay(msg: ClientMessage): msg is Extract<ClientMessage, { t: GameplayRequest }> {
   return GAMEPLAY_SET.has(msg.t)
@@ -92,6 +116,10 @@ export class Connection {
   /** Per-type budgets of gameplay requests (CLIENT_RATE_LIMITS). */
   private readonly actionBuckets = new Map<ClientMessage['t'], TokenBucket>()
   private helloTimer: NodeJS.Timeout | null
+  /** Why this connection ended (logged once by dispose): set by close(), the socket close/error, or the heartbeat. */
+  private closeReason: string | null = null
+  /** The socket is corked until the end of this event-loop turn (corkTurn). */
+  private corked = false
 
   constructor(
     private readonly ws: WebSocket,
@@ -102,8 +130,15 @@ export class Connection {
       if (this.state === 'hello') this.close(CLOSE_CODE.helloTimeout, 'hello timeout')
     }, game.config.helloTimeoutMs)
     ws.on('message', (data, isBinary) => this.onFrame(data, isBinary))
-    ws.on('close', () => this.dispose())
-    ws.on('error', () => this.dispose())
+    ws.on('close', (code: number, reason: Buffer) => {
+      const timedOut = (ws as WebSocket & { sroTimedOut?: boolean }).sroTimedOut
+      this.closeReason ??= timedOut ? 'heartbeat timeout' : `client ${code}${reason.length ? ' ' + reason.toString('utf8').slice(0, 60) : ''}`
+      this.dispose()
+    })
+    ws.on('error', (e: Error) => {
+      this.closeReason ??= `socket error ${(e as NodeJS.ErrnoException).code ?? e.message}`
+      this.dispose()
+    })
   }
 
   send(msg: ServerMessage): void {
@@ -112,7 +147,28 @@ export class Connection {
       this.close(CLOSE_CODE.abuse, 'not reading')
       return
     }
-    this.ws.send(JSON.stringify(msg))
+    const text = JSON.stringify(msg)
+    this.game.net.sent(msg.t, text.length)
+    this.corkTurn()
+    this.ws.send(text)
+  }
+
+  /**
+   * Coalesces this turn's frames into one socket write (docs/NETWORK_AUDIT.md N1): the first send of an event-loop turn
+   * corks the TCP socket and a setImmediate uncorks it, so a tick that sends a client 30 `move` / `stop` frames costs
+   * one writev instead of 30 (at 500 players in one town the per-frame writes were ~half the server's CPU). The frames
+   * and their order are unchanged; they leave at the end of the turn instead of one by one within it.
+   */
+  private corkTurn(): void {
+    if (this.corked) return
+    const socket = (this.ws as WebSocket & { _socket?: { cork(): void; uncork(): void } })._socket
+    if (!socket) return
+    this.corked = true
+    socket.cork()
+    setImmediate(() => {
+      this.corked = false
+      socket.uncork()
+    })
   }
 
   error(code: ErrorCode, message: string, re?: ClientMessage['t']): void {
@@ -122,6 +178,7 @@ export class Connection {
   /** Sends an error, then closes. Cleanup runs synchronously so a replacement login sees a clean slate. */
   close(code: number, reason: string): void {
     if (this.state === 'closed') return
+    this.closeReason ??= `server ${code} ${reason}`
     this.dispose()
     try {
       this.ws.close(code, reason)
@@ -135,7 +192,12 @@ export class Connection {
     if (this.state === 'closed') return
     if (this.helloTimer) clearTimeout(this.helloTimer)
     this.helloTimer = null
-    this.leaveWorld(false)
+    const reason = this.closeReason ?? 'closed'
+    const who = this.account ? `${this.account}${this.player ? ' (' + this.player.name + ')' : ''}` : this.ip
+    this.game.config.log(`disconnect: ${who} in ${this.state}: ${reason}`)
+    // the counter keeps the reason class only (no free text): "client 1001", "server 4008", "heartbeat timeout"
+    this.game.net.closed(reason.split(' ').slice(0, 2).join(' '))
+    this.leaveWorld(false, dropHoldsBody(reason))
     this.state = 'closed'
     if (this.accountId && this.game.sockets.get(this.accountId) === this) this.game.sockets.delete(this.accountId)
   }
@@ -170,8 +232,16 @@ export class Connection {
     const text = Buffer.isBuffer(data) ? data.toString('utf8') : Array.isArray(data) ? Buffer.concat(data).toString('utf8') : Buffer.from(data as ArrayBuffer).toString('utf8')
     const parsed = parseClientMessage(text)
     if (!parsed.ok) {
+      this.game.net.recvd('invalid', text.length)
       this.error('bad_request', parsed.error)
       this.strike()
+      return
+    }
+    this.game.net.recvd(parsed.msg.t, text.length)
+    const t = parsed.msg.t
+    const limit = MESSAGE_RATE_LIMITS[t]
+    if (limit && !this.budget(t, limit)) {
+      if (!SILENT_DROP.has(t)) this.error('rate_limited', 'too many requests', t)
       return
     }
     try {
@@ -216,6 +286,8 @@ export class Connection {
         return this.charLook(msg.id, msg.look)
       case 'charDelete':
         if (this.state !== 'lobby') return this.error('already_in_world', 'leave the world first', msg.t)
+        // a body held for a reconnect (resume.ts) leaves first, so its save cannot land on the deleted row later
+        if (this.game.store.characterOwned(msg.id, this.accountId)) this.game.holds.release(msg.id)
         if (!this.game.store.softDeleteCharacter(msg.id, this.accountId)) return this.error('not_found', 'no such character', msg.t)
         this.send({ t: 'charDeleted', id: msg.id })
         return
@@ -276,9 +348,7 @@ export class Connection {
     if (!this.player) return this.error('not_in_world', 'not in the world', msg.t)
     const limit = CLIENT_RATE_LIMITS[msg.t]
     if (limit) {
-      let bucket = this.actionBuckets.get(msg.t)
-      if (!bucket) this.actionBuckets.set(msg.t, (bucket = new TokenBucket(limit.perSecond, limit.burst)))
-      if (!bucket.take()) {
+      if (!this.budget(msg.t, limit)) {
         // A well-formed request over its own budget (a player mashing a key) is only refused, never a strike: the
         // global message budget above still strikes a real flood.
         this.send({ t: 'actionResult', re: msg.t, ok: false, reason: 'rate_limited' })
@@ -286,6 +356,13 @@ export class Connection {
       }
     }
     this.game.gameplay.request(this.player, msg)
+  }
+
+  /** Takes one token of `t`'s own budget (created on first use). false = over it. */
+  private budget(t: ClientMessage['t'], limit: { perSecond: number; burst: number }): boolean {
+    let bucket = this.actionBuckets.get(t)
+    if (!bucket) this.actionBuckets.set(t, (bucket = new TokenBucket(limit.perSecond, limit.burst)))
+    return bucket.take()
   }
 
   private hello(version: number, token: string): void {
@@ -460,6 +537,12 @@ export class Connection {
     if (!row.starter_kit && this.game.gameplay.grantStarterKit(row.id, row.weapon, row.model, row.outfit)) row = this.game.store.characterOwned(id, this.accountId)!
     this.applyRole(this.game.store.accountRole(this.accountId))
     const { world } = this.game
+    // docs/NETWORK_AUDIT.md N5: a reconnect takes back the body its dropped connection left (held, or lingering in a
+    // fight): saved and removed now, then entered from that save below, so it continues where it stood.
+    if (this.game.holds.release(row.id) || this.game.gameplay.penalty.reclaim(row.id)) {
+      this.game.config.log(`${row.name} reconnected: resumed`)
+      row = this.game.store.characterOwned(id, this.accountId)!
+    }
     // The Climb (docs/CLIMB.md §6.1, F6): the body of this character still lingers in a fight.
     const linger = this.game.gameplay.penalty.lingerLeft(row.id, Date.now())
     if (linger > 0) return this.error('already_in_world', `Your character is still in combat. Try again in ${linger} s.`, 'enterWorld')
@@ -510,8 +593,11 @@ export class Connection {
     this.game.gameplay.sendEnter(this.player)
   }
 
-  /** Saves and removes the player from the world. `notify` sends worldLeft to this client. */
-  private leaveWorld(notify: boolean): void {
+  /**
+   * Saves and removes the player from the world. `notify` sends worldLeft to this client. `hold`: the connection dropped
+   * without a goodbye, so the character may stay a while for a reconnect (resume.ts).
+   */
+  private leaveWorld(notify: boolean, hold = false): void {
     const p = this.player
     if (!p) return
     this.player = null
@@ -527,7 +613,7 @@ export class Connection {
     }
     // The Climb (docs/CLIMB.md §6.1, F6): leaving within seconds of monster damage leaves the body in the world that
     // long (still a target), so closing the tab does not dodge the death penalty; climb/penalty.ts removes it later.
-    if (!game.gameplay.penalty.linger(p, Date.now(), leave)) leave()
+    if (!game.gameplay.penalty.linger(p, Date.now(), leave) && !(hold && game.holds.hold(p, leave))) leave()
     if (this.state === 'world') this.state = 'lobby'
     if (notify) this.send({ t: 'worldLeft' })
   }

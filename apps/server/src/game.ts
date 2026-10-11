@@ -39,6 +39,8 @@ import { FlatNav, MeshNav, type NavProvider } from './nav.ts'
 import { applyClimbContent, convertClimbCharacters, remapClimbNests } from './climb.ts'
 import { NewsStore } from './news.ts'
 import { originAllowed } from './origin.ts'
+import { NetStats, isLoopback } from './netstats.ts'
+import { BodyHolds } from './resume.ts'
 import { acceptedEncodings, serveFile } from './static.ts'
 import type { Updater } from './updater/updater.ts'
 import { World, type Player } from './world.ts'
@@ -62,6 +64,10 @@ export interface GameContext {
   gameplay: Gameplay
   /** One live socket per account. */
   sockets: Map<number, Connection>
+  /** Message, byte, tick and disconnect counters (netstats.ts; GET /netstats with NET_STATS=1, loopback only). */
+  net: NetStats
+  /** Characters of dropped connections held in the world for a reconnect (resume.ts). */
+  holds: BodyHolds
   serverInfo(): ServerInfo
   /** Saves the authoritative positions (and HP/MP/death) of `players` at `now`. */
   persist(players: Player[], now?: number): void
@@ -281,6 +287,8 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
     nav,
     gameplay,
     sockets,
+    net: new NetStats(config.tickHz),
+    holds: new BodyHolds(() => (config.resumeGraceS ?? 0) * 1000, config.log),
     news: NewsStore.open(config),
     serverInfo: () => ({
       id: config.world,
@@ -551,6 +559,13 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
         }
         throw new HttpError(404, 'not_found', 'the admin panel is not built (pnpm --filter @sro/admin build)')
       }
+      // The load test (src/cli/netload.ts): counters for a local run only, never on a public port.
+      if (rawPath === '/netstats' && process.env.NET_STATS === '1' && isLoopback(req.socket.remoteAddress)) {
+        if ((req.url ?? '').includes('reset=1')) ctx.net.reset()
+        // the load test ends its server this way on Windows (no SIGINT there), so a --cpu-prof profile gets written
+        if ((req.url ?? '').includes('exit=1')) setTimeout(() => process.exit(0), 200).unref()
+        return sendJson(res, 200, ctx.net.snapshot())
+      }
       if (rawPath === '/health') {
         return sendJson(res, 200, {
           ok: true, uptime: Math.round((Date.now() - startedAt) / 1000), online: world.online, schema: store.schemaVersion,
@@ -634,6 +649,9 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
       })
       alive.add(ws)
       ws.on('pong', () => alive.add(ws))
+      ctx.net.opened++
+      ctx.net.open++
+      ws.once('close', () => ctx.net.open--)
       new Connection(ws, ctx, ip)
     })
   })
@@ -642,10 +660,13 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
   config.log(gameplay.start())
   const unplaced = unplacedNestsLine(gameplay, data, setup)
   if (unplaced) config.log(unplaced)
+  world.onTickTimed = (ms) => ctx.net.tick(ms)
   world.start()
   const heartbeat = setInterval(() => {
     for (const ws of wss.clients) {
       if (!alive.has(ws)) {
+        // No pong for a whole interval: the Connection logs it (its close handler sees this flag).
+        ;(ws as WebSocket & { sroTimedOut?: boolean }).sroTimedOut = true
         ws.terminate()
         continue
       }
@@ -707,6 +728,8 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
         }
         // docs/CLIMB.md §6.1 (F6): bodies lingering in a fight leave now (saved and removed)
         gameplay.penalty.flush()
+        // docs/NETWORK_AUDIT.md N5: bodies held for a reconnect too
+        ctx.holds.releaseAll()
         ctx.persist([...world.players.values()])
         // docs/SIEGE.md §5.3: the walls' unsaved integrity
         gameplay.walls.flush()

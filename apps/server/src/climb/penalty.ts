@@ -223,6 +223,18 @@ export class DeathPenalty implements GameplayModule {
     }
   }
 
+  /**
+   * The same character enters again while its body lingers (a reconnect, docs/NETWORK_AUDIT.md N5): the body leaves now
+   * (saved), so the new entry starts from where it stood instead of being refused until the linger ends. true = it lingered.
+   */
+  reclaim(characterId: number): boolean {
+    const l = this.lingering.get(characterId)
+    if (!l) return false
+    this.lingering.delete(characterId)
+    l.finish()
+    return true
+  }
+
   /** Server shutdown: every lingering body leaves now (saved like any other). */
   flush(): void {
     this.tick(Number.POSITIVE_INFINITY)

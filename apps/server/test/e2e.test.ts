@@ -218,7 +218,7 @@ describe.skipIf(!haveExport)('end to end with the game client modules', () => {
     expect(near(mvB.move.to, [tx, 0, tz])).toBe(true)
     const stop = await stopSeenByB
     expect(near(stop.pos, [tx, 0, tz])).toBe(true)
-    expect(stop.yaw).toBeCloseTo(Math.atan2(tx - spawn.x, tz - spawn.z), 6)
+    expect(stop.yaw).toBeCloseTo(Math.atan2(tx - spawn.x, tz - spawn.z), 3)
 
     // ---- chat (as the chat box sends it: trimmed, sliced to MAX_CHAT_LENGTH) ---------------------
     const line = 'hello from Jangan '.repeat(10).trim().slice(0, MAX_CHAT_LENGTH)

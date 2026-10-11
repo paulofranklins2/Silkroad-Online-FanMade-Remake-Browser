@@ -270,7 +270,7 @@ describe('combat linger end to end (connection.ts)', () => {
     await s?.stopAndClean()
   })
 
-  it('closing the socket in a fight keeps the body; a relog waits; a death meanwhile costs EXP and saves it', async () => {
+  it('closing the socket in a fight keeps the body; a death meanwhile costs EXP and saves it', async () => {
     s = await startTestServer({ config: { climb: true, levelCap: 25 }, files: contentFiles({ mobs: [MANGNYANG], items: ITEMS, levels: LEVELS25 }) })
     const acc = await newAccount(s.url, 'linger')
     const c = await Client.login(s.url, acc.token)
@@ -289,18 +289,47 @@ describe('combat linger end to end (connection.ts)', () => {
     c.close()
     await sleep(150)
     expect(world.players.get(p.id)).toBe(p)
-    const c2 = await Client.login(s.url, acc.token)
-    c2.send({ t: 'enterWorld', id: ch.id })
-    const err = await c2.next('error')
-    expect(err).toMatchObject({ code: 'already_in_world' })
     gameplay.dealHits(m, p, [{ outcome: 'hit', damage: 1e9, hp: 0 }], {}, Date.now())
     await sleep(300)
     expect(world.players.has(p.id)).toBe(false)
     const row = store.characterById(ch.id)!
     expect(row.exp).toBeLessThan(10_000)
     expect(row.dead).toBe(1)
+    const c2 = await Client.login(s.url, acc.token)
     c2.send({ t: 'enterWorld', id: ch.id })
     await c2.next('worldEnter')
+    c2.close()
+  })
+
+  // docs/NETWORK_AUDIT.md N5: a reconnect during the linger takes the body back (saved, then entered from the save)
+  it('a relog while the body lingers takes it back where it stood, with its HP', async () => {
+    s = await startTestServer({ config: { climb: true, levelCap: 25 }, files: contentFiles({ mobs: [MANGNYANG], items: ITEMS, levels: LEVELS25 }) })
+    const acc = await newAccount(s.url, 'linger')
+    const c = await Client.login(s.url, acc.token)
+    c.send({ t: 'charCreate', name: 'Returner', model: 'CHAR_CH_MAN_ADVENTURER', weapon: 'blade' })
+    const ch = (await c.next('charCreated')).character
+    c.send({ t: 'enterWorld', id: ch.id })
+    await c.next('worldEnter')
+    const { world, gameplay, store } = s.ctx
+    const p = [...world.players.values()].find((x) => x.characterId === ch.id)!
+    p.progress = { ...p.progress, level: 16, exp: 10_000 }
+    p.level = 16
+    store.saveProgress(p.characterId, p.progress)
+    const at = world.positionAt(p, Date.now())
+    const m = gameplay.createMob(gameplay.data.mob(MANGNYANG.code)!, 'normal', at[0] + 1, at[2], at[1], null, Date.now())
+    gameplay.dealHits(m, p, [{ outcome: 'hit', damage: 5, hp: 0 }], {}, Date.now())
+    const hp = p.hp
+    c.close()
+    await sleep(150)
+    expect(world.players.get(p.id)).toBe(p)
+    const c2 = await Client.login(s.url, acc.token)
+    c2.send({ t: 'enterWorld', id: ch.id })
+    const back = await c2.next('worldEnter')
+    expect(world.players.has(p.id)).toBe(false)
+    expect(back.self.pos[0]).toBeCloseTo(at[0], 1)
+    expect(back.self.pos[2]).toBeCloseTo(at[2], 1)
+    expect(back.self.hp).toBeGreaterThanOrEqual(hp)
+    expect(back.self.hp).toBeLessThan(p.maxHp)
     c2.close()
   })
 })

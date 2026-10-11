@@ -290,6 +290,18 @@ export const allowStraightLine: MoveValidator = (_from, to) => to
 /** Moves shorter than this are treated as "stop here". */
 const MIN_MOVE_M = 0.01
 /** Default view distance (metres). */
+/**
+ * Positions and headings of the hot movement messages (move, stop, warp) go out rounded: cm and 1/1000 rad (docs/
+ * NETWORK_AUDIT.md N2). A full double prints 17 digits; at 500 players in one town these messages are ~95 % of the
+ * bytes sent. The server keeps its exact values; the client's view differs by at most 5 mm.
+ */
+export function wirePos(v: readonly number[]): Vec3 {
+  return [Math.round(v[0]! * 100) / 100, Math.round(v[1]! * 100) / 100, Math.round(v[2]! * 100) / 100]
+}
+export function wireYaw(y: number): number {
+  return Math.round(y * 1000) / 1000
+}
+
 export const DEFAULT_VIEW_RANGE = 120
 /** An entity is despawned only once it is this much farther than the view range (no flicker at the edge). */
 export const VIEW_HYSTERESIS_M = 10
@@ -332,6 +344,8 @@ export class World {
   /** Slowest tick so far (ms) and ticks run, for the performance log. */
   worstTickMs = 0
   ticks = 0
+  /** Each tick's duration (ms), for the metrics (netstats.ts). */
+  onTickTimed: ((ms: number) => void) | null = null
 
   constructor(
     readonly name: string,
@@ -370,6 +384,7 @@ export class World {
       ms = performance.now() - t0
       this.ticks++
       if (ms > this.worstTickMs) this.worstTickMs = ms
+      this.onTickTimed?.(ms)
     }
     return ms
   }
@@ -510,7 +525,7 @@ export class World {
     p.path = null
     p.pos = placed ? [placed.x, placed.y, placed.z] : [cx, y, cz]
     p.surface = placed?.surface ?? null
-    this.broadcastAbout(p, { t: 'warp', id: p.id, pos: [...p.pos], yaw: p.yaw })
+    this.broadcastAbout(p, { t: 'warp', id: p.id, pos: wirePos(p.pos), yaw: wireYaw(p.yaw) })
     this.refreshAround(p, now)
     return [...p.pos]
   }
@@ -797,7 +812,7 @@ export class World {
     if (!walk || !end || Math.hypot(end.x - from[0], end.z - from[2]) < MIN_MOVE_M) {
       const wasMoving = p.move !== null
       this.standAt(p, start)
-      if (wasMoving) this.broadcastAbout(p, { t: 'stop', id: p.id, pos: [...from], yaw: p.yaw })
+      if (wasMoving) this.broadcastAbout(p, { t: 'stop', id: p.id, pos: wirePos(from), yaw: wireYaw(p.yaw) })
       return null
     }
     p.pos = from
@@ -807,7 +822,7 @@ export class World {
     const toY = this.nav.kind === 'mesh' && Number.isFinite(end.y) ? end.y : from[1]
     p.move = { from, to: [end.x, toY, end.z], speed, startedAt: now }
     p.path = walk.legs.length > 0 ? { legs: walk.legs, length: legsLength(walk.legs), end: end.surface } : end.surface ? { legs: [], length: 0, end: end.surface } : null
-    this.broadcastAbout(p, { t: 'move', id: p.id, move: { ...p.move, from: [...from], to: [...p.move.to] } })
+    this.broadcastAbout(p, { t: 'move', id: p.id, move: { ...p.move, from: wirePos(from), to: wirePos(p.move.to) } })
     return { blocked: walk.blocked }
   }
 
@@ -821,7 +836,7 @@ export class World {
     if (moving) this.standAt(p, this.livePoint(p, now))
     const diff = yaw === undefined ? 0 : Math.abs(Math.atan2(Math.sin(yaw - p.yaw), Math.cos(yaw - p.yaw)))
     if (yaw !== undefined && (moving || diff > TURN_EPS)) p.yaw = yaw
-    if (moving || diff > TURN_EPS) this.broadcastAbout(p, { t: 'stop', id: p.id, pos: [...p.pos], yaw: p.yaw })
+    if (moving || diff > TURN_EPS) this.broadcastAbout(p, { t: 'stop', id: p.id, pos: wirePos(p.pos), yaw: wireYaw(p.yaw) })
   }
 
   arrivalTime(m: MoveState): number {
@@ -842,7 +857,7 @@ export class World {
   private arrive(p: Player | Mob | Cos, now: number): void {
     if (!p.move || this.arrivalTime(p.move) > now) return
     this.standAt(p, { x: p.move.to[0], y: p.move.to[1], z: p.move.to[2], surface: p.path ? p.path.end : (p.surface ?? null) })
-    this.broadcastAbout(p, { t: 'stop', id: p.id, pos: [...p.pos], yaw: p.yaw })
+    this.broadcastAbout(p, { t: 'stop', id: p.id, pos: wirePos(p.pos), yaw: wireYaw(p.yaw) })
   }
 
   // ---- interest management ------------------------------------------------------------------------
@@ -852,8 +867,9 @@ export class World {
     let r = this.viewRange + (known ? VIEW_HYSTERESIS_M : 0)
     // Play the Boss, Stalk: a veiled boss only shows within `veil` m (no hysteresis), except to staff and her pilot.
     if (e.kind === 'mob' && e.veil !== undefined && !viewer.staff && e.pilot?.player !== viewer.id) r = Math.min(r, e.veil)
-    const a = this.positionAt(this.viewAnchor(viewer), now)
-    const b = this.positionAt(e, now)
+    const anchor = this.viewAnchor(viewer)
+    const a = this.posCache?.get(anchor) ?? this.positionAt(anchor, now)
+    const b = this.posCache?.get(e) ?? this.positionAt(e, now)
     const dx = a[0] - b[0]
     const dz = a[2] - b[2]
     return dx * dx + dz * dz <= r * r
@@ -898,15 +914,32 @@ export class World {
     }
   }
 
+  /**
+   * Each entity's position during one updateInterest pass (computed once, not once per viewer pair: at 500 players in
+   * one town that was ~half a million positionAt calls per pass). Null outside the pass.
+   */
+  private posCache: Map<Entity | Mover, Vec3> | null = null
+
   /** Recomputes every player's view, using a uniform grid so the cost grows with nearby entities only. */
   updateInterest(now: number): void {
     this.interestAt = now
     if (this.players.size === 0) return
+    this.posCache = new Map()
+    try {
+      this.interestPass(now, this.posCache)
+    } finally {
+      this.posCache = null
+    }
+  }
+
+  private interestPass(now: number, cache: Map<Entity | Mover, Vec3>): void {
     const cell = Math.max(16, this.viewRange)
     const grid = new Map<string, Entity[]>()
     const key = (cx: number, cz: number) => `${cx},${cz}`
     for (const e of this.allEntities()) {
-      const [x, , z] = this.positionAt(e, now)
+      const at = this.positionAt(e, now)
+      cache.set(e, at)
+      const [x, , z] = at
       const k = key(Math.floor(x / cell), Math.floor(z / cell))
       const list = grid.get(k)
       if (list) list.push(e)

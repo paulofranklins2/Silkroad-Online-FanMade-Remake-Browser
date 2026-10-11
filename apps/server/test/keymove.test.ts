@@ -144,12 +144,16 @@ describe('a key walk over the wire', () => {
     await Promise.all([a.c.closed, b.c.closed])
   })
 
-  it('the message budget still refuses a flood of moves (rate_limited), never the client cadence', async () => {
+  // docs/NETWORK_AUDIT.md N3: moveTo has its own budget (15/s, burst 15); over it, moves are dropped without a strike
+  it('the moveTo budget drops a flood of moves silently, never the client cadence', async () => {
     const a = await player()
     for (let i = 0; i < 60; i++) a.c.send({ t: 'moveTo', x: SPAWN[0] + (i % 2), z: SPAWN[2] })
-    const err = await a.c.next('error', (m) => m.code === 'rate_limited')
-    expect(err.message).toMatch(/too many/)
+    a.c.send({ t: 'ping', n: 1, clientTime: 0 })
+    await a.c.next('pong')
     expect(a.c.isClosed).toBe(false)
+    const moves = a.c.log.filter((m) => m.t === 'move').length
+    expect(moves).toBeGreaterThan(0)
+    expect(moves).toBeLessThanOrEqual(17)
     a.c.close()
     await a.c.closed
   })

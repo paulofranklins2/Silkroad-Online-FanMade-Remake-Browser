@@ -64,6 +64,8 @@ export interface ServerConfig {
   penaltyGraceHighFrom?: number
   penaltyGraceHighMin?: number
   penaltyLingerS?: number
+  /** Seconds a dropped connection's character stays in the world for a reconnect (resume.ts; RESUME_GRACE_S, default 15; absent = 0). */
+  resumeGraceS?: number
   /** The Climb's monster roles (docs/CLIMB.md §2.3, layer L3; CLIMB_ROLES, default on with CLIMB): packs, ranged, healers, cowards. */
   climbRoles?: boolean
   /** How often (ms) the server checks the database for role changes made by `pnpm gm` while it runs. */
@@ -505,6 +507,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     penaltyGraceHighFrom: Math.floor(num(env, 'PENALTY_GRACE_HIGH_FROM', CLIMB_PENALTY.graceHighFrom, 1, 300)),
     penaltyGraceHighMin: num(env, 'PENALTY_GRACE_HIGH_MIN', CLIMB_PENALTY.graceHighMin, 0, 1440),
     penaltyLingerS: num(env, 'PENALTY_LINGER_S', CLIMB_PENALTY.lingerS, 0, 60),
+    resumeGraceS: num(env, 'RESUME_GRACE_S', 15, 0, 120),
     spawnMobs: bool(env, 'SPAWN_MOBS', true),
     giantPct: num(env, 'GIANT_PCT', 1, 0, 100),
     nav: navMode(env.NAV),

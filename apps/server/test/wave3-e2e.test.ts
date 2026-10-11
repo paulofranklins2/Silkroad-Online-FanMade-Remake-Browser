@@ -432,7 +432,7 @@ for (const worldExport of ['jangan', 'jangan-fields'] as const) {
       const warp = await g.c.next('warp', (m) => m.id === g.id)
       expect(warp.pos[0]).toBeCloseTo(GATE_CH.x, 3)
       expect(warp.pos[2]).toBeCloseTo(GATE_CH.z, 3)
-      expect(warp.pos[1]).toBeCloseTo(GATE_CH.y, 3)
+      expect(warp.pos[1]).toBeCloseTo(GATE_CH.y, 2)
       const seq = g.c.log.slice(from).map((m) => m.t).filter((t) => t === 'inventoryUpdate' || t === 'itemCastEnd' || t === 'warp')
       expect(seq).toEqual(['inventoryUpdate', 'itemCastEnd', 'warp'])
       expect(h.count(g.ch.id, RETURN_5S)).toBe(1)
