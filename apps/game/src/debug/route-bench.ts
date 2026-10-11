@@ -11,7 +11,7 @@
  * Every leg sets the probe's tag, so each spike says where it happened. Runs on the display's own frame pacing
  * (requestAnimationFrame: the frames the player sees), not the uncapped pump of `measure`.
  */
-import { AbstractMesh, AnimationGroup, EngineInstrumentation, Geometry, Material, Mesh, Skeleton, TransformNode, type Observer, type Scene } from '@babylonjs/core'
+import { AbstractMesh, AnimationGroup, EngineInstrumentation, Geometry, Material, Mesh, PBRBaseMaterial, Skeleton, TransformNode, type Observer, type Scene } from '@babylonjs/core'
 import type { World } from '@sro/world-render'
 import { CharacterActor, ModelLibrary } from '../three/models.ts'
 import { CrowdBudget } from '../world/crowd-budget.ts'
@@ -57,10 +57,32 @@ function methodsOf(proto: object, skip: RegExp = /^(constructor|densityAt|meadow
 let factoriesWrapped = false
 
 /**
+ * Materials whose defines were dirty at a draw's readiness check (the define string rebuilt, the garbage of a material
+ * re-checked every frame), by material name / mesh name; counted only while `dirtyLog` is set (the route).
+ */
+export const dirtyLog: { map: Map<string, number> | null } = { map: null }
+let dirtyWrapped = false
+function wrapDirtyCheck(): void {
+  if (dirtyWrapped) return
+  dirtyWrapped = true
+  const proto = PBRBaseMaterial.prototype as unknown as { isReadyForSubMesh: (mesh: AbstractMesh, subMesh: { materialDefines?: { isDirty?: boolean } | null }, useInstances?: boolean) => boolean }
+  const orig = proto.isReadyForSubMesh
+  proto.isReadyForSubMesh = function (this: Material, mesh, subMesh, useInstances) {
+    const m = dirtyLog.map
+    if (m && subMesh.materialDefines?.isDirty) {
+      const k = `${this.name.replace(/\d+/g, '#')} / ${mesh.name.replace(/\d+/g, '#')}`
+      m.set(k, (m.get(k) ?? 0) + 1)
+    }
+    return orig.call(this, mesh, subMesh, useInstances)
+  }
+}
+
+/**
  * The systems the probe times (once per page for the classes; the world's parts each time a new world appears).
  * Called at install (the feature factories must be wrapped before the world screen builds its features).
  */
 export function instrumentClasses(probe: FrameProbe): void {
+  wrapDirtyCheck()
   probe.wrapProto(EntityView.prototype, ['update', 'updateLabel', 'dispose', 'die', 'beginFade'], 'entities')
   // what a despawn costs (entities.dispose holds these)
   probe.wrapProto(CharacterActor.prototype, ['dispose'], 'actor')
@@ -208,6 +230,8 @@ export interface RouteResult {
   /** Effects (shader variants) compiled during the route (each one: Babylon's shader processing on the main thread). */
   newEffects: number
   newEffectsBy: [string, number][]
+  /** PBR readiness checks with dirty defines during the route, by material / mesh (top 15). */
+  dirtyBy: [string, number][]
   /** Pipelines made in the background during the route: in-play skips (a visible mesh waited), new meshes prewarmed, started. */
   warm: { skippedInPlay: number; prewarmed: number; started: number; skippedBy: [string, number][] } | null
 }
@@ -278,6 +302,7 @@ export async function runRoute(
   const effects0 = new Set(effectKeys())
   const pw = PipelineWarm.for(eng)
   if (pw) pw.skipLog = new Map()
+  dirtyLog.map = new Map()
   const w0 = pw ? { skippedInPlay: pw.skippedInPlay, prewarmed: pw.prewarmed, started: pw.started } : null
   probe.start()
   try {
@@ -334,6 +359,8 @@ export async function runRoute(
   const newEffectsBy = [...byShader].sort((a, b) => b[1] - a[1]).slice(0, 15)
   const skippedBy = pw?.skipLog ? [...pw.skipLog].map(([k, n]) => [k.replace(/\d+/g, '#'), n] as [string, number]).reduce((m, [k, n]) => m.set(k, (m.get(k) ?? 0) + n), new Map<string, number>()) : null
   if (pw) pw.skipLog = null
+  const dirtyBy = [...(dirtyLog.map ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]).slice(0, 15)
+  dirtyLog.map = null
   const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started, skippedBy: skippedBy ? [...skippedBy].sort((a, b) => b[1] - a[1]).slice(0, 12) : [] } : null
   scene.onBeforeRenderObservable.remove(spinObs)
   eng.onEndFrameObservable.remove(gpuObs)
@@ -374,6 +401,7 @@ export async function runRoute(
     draws: { plaza: plazaDraws, fields: fieldsDraws },
     newEffects,
     newEffectsBy,
+    dirtyBy,
   }
 }
 
@@ -385,6 +413,7 @@ export function routeReport(r: RouteResult): string {
     `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.hops ? ` (${l.hops} hops)` : ''}`).join(', ')}`,
     `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
     `background pipelines: ${JSON.stringify(r.warm)}`,
+    `dirty defines: ${JSON.stringify(r.dirtyBy)}`,
     `draw census: ${JSON.stringify(r.draws)}; new effects ${r.newEffects} ${JSON.stringify(r.newEffectsBy)}`,
     `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}; new pipelines ${JSON.stringify(p.pipelines)}`,
     'system | mean | p50 | p95 | max | in spikes (ms, frames)',
