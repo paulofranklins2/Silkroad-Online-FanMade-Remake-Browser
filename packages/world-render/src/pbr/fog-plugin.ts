@@ -67,6 +67,8 @@ export const CAMERA_HEIGHT_M = 14
 export const MIST_MAX = 0.016
 export const MIST_H_M = 7
 export const MIST_START_M = 6
+/** Metres of fog start added per metre the eye is above its usual height (for the rays down toward the ground). */
+export const ALT_START_K = 1.2
 
 /** Fog density (1/m) for a fog that starts at `startM` and reaches 95% at `endM`. */
 export function fogDensity(startM: number, endM: number): number {
@@ -199,7 +201,7 @@ export function packFogW(groundY: number | null, mist: number): number {
 export const HEIGHT_FOG_WGSL = `
 fn sroHeightFogAmount(posW: vec3f, eye: vec3f, a: vec4f) -> f32 {
   let dist = length(posW - eye);
-  let d = max(dist - a.z, 0.0);
+  var d = max(dist - a.z, 0.0);
   let h = eye.y - posW.y;
   let kh = clamp(h * a.y, 0.0, ${MAX_KH.toFixed(1)});
   var f = select((exp(kh) - 1.0) / max(kh, 1e-4), 1.0 + kh * 0.5, kh < 1e-4);
@@ -212,7 +214,10 @@ fn sroHeightFogAmount(posW: vec3f, eye: vec3f, a: vec4f) -> f32 {
     // the eye above its usual height: rays down toward the ground see the density of the ground, not of the eye's
     // altitude grown by e per falloff (the heavy ground fog seen from flying height)
     let above = max(eye.y - g - ${CAMERA_HEIGHT_M.toFixed(1)}, 0.0);
-    f = f * mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), clamp(h / max(above, 1.0), 0.0, 1.0));
+    let share = clamp(h / max(above, 1.0), 0.0, 1.0);
+    f = f * mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), share);
+    // and the first stretch of such a ray is the clear air above the haze: the start moves out with the height
+    d = max(dist - a.z - ${ALT_START_K.toFixed(2)} * above * share, 0.0);
     // ground mist: density md·e^(−(y − g)/H), integrated exactly along the ray (valleys below the ground pool it)
     let md = (pk - gq * 256.0) * ${(MIST_MAX / 255).toExponential(6)};
     let e0 = exp(-clamp((eye.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
@@ -245,7 +250,9 @@ float sroHeightFogAmount(vec3 posW, vec3 eye, vec4 a) {
   if (gq > 0.5) {
     float g = (gq - 1.0) * 0.5 - ${GROUND_OFFSET.toFixed(1)};
     float above = max(eye.y - g - ${CAMERA_HEIGHT_M.toFixed(1)}, 0.0);
-    f *= mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), clamp(h / max(above, 1.0), 0.0, 1.0));
+    float share = clamp(h / max(above, 1.0), 0.0, 1.0);
+    f *= mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), share);
+    d = max(dist - a.z - ${ALT_START_K.toFixed(2)} * above * share, 0.0);
     float md = (pk - gq * 256.0) * ${(MIST_MAX / 255).toExponential(6)};
     float e0 = exp(-clamp((eye.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
     float e1 = exp(-clamp((posW.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));

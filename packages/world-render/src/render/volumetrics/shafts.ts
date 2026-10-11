@@ -262,7 +262,7 @@ export function shaftLook(i: Readonly<ShaftLookInput>, t: Readonly<ShaftTuning> 
   const mist = clamp01((w.fogMul - 1) / 1.25)
   const humidity = clamp01(w.wetness - w.rain)
   const brk = clamp01(i.sunBreak ?? 0)
-  const weather = (1 - 0.75 * smoothstep(0.55, 0.95, w.cloud) * (1 - brk)) * (1 - 0.85 * clamp01(w.rain) * (1 - 0.75 * brk)) * (1 + t.mistGain * mist + t.humidGain * humidity)
+  const weather = (1 - 0.75 * smoothstep(0.55, 0.95, w.cloud) * (1 - 0.5 * brk)) * (1 - 0.85 * clamp01(w.rain) * (1 - 0.35 * brk)) * (1 + t.mistGain * mist + t.humidGain * humidity)
   const nearFog = Math.max(0, i.fogDensity) * clamp01(1 - Math.max(0, i.fogStartM) / 100)
   const sigma = t.sigma * (1 + t.mistSigma * mist + t.humidSigma * humidity) + t.fogShare * nearFog
   const tint = hazeTint(i.fogColor)

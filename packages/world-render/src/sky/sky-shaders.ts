@@ -184,7 +184,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   // the sun, open near the horizon and closing overhead
   let sunH = normalize(vec2f(sunD.x, sunD.z) + vec2f(1e-6, 0.0));
   let brkAz = max(dot(hdir, sunH), 0.0);
-  let brk = uniforms.skyMoonV.w * pow(brkAz, 6.0) * (1.0 - smoothstep(0.04, 0.42, dir.y - max(sunD.y, 0.0)));
+  let brk = uniforms.skyMoonV.w * pow(brkAz, 16.0) * (1.0 - smoothstep(0.04, 0.42, dir.y - max(sunD.y, 0.0)));
   let precipB = precip * (1.0 - brk);
 
   // Star space and the pixel footprint first (fwidth in uniform control flow).
@@ -207,8 +207,9 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   rgb = rgb + uniforms.skySunColor.rgb * (uniforms.skySun.w * inSun * (1.0 - 0.6 * (1.0 - muSun * muSun)) * (1.0 - precipB));
   // its halo (forward scattering in the haze): a bright core and a wide soft glow; the clouds below cover it
   let sunUp = smoothstep(-0.05, 0.02, dot(dir, sunD)) * smoothstep(-0.03, 0.01, dir.y);
-  let haloK = uniforms.skyVol2.x * exp(-sunA * sunA * 900.0) + uniforms.skyVol2.y * exp(-sunA * 7.0);
-  rgb = rgb + uniforms.skySunColor.rgb * (haloK * sunUp * (1.0 - precipB));
+  // item 16: through a rain break only the bright core shows; the wide glow stays under the rain haze
+  let haloK = uniforms.skyVol2.x * exp(-sunA * sunA * 900.0) * (1.0 - precipB) + uniforms.skyVol2.y * exp(-sunA * 7.0) * (1.0 - precip);
+  rgb = rgb + uniforms.skySunColor.rgb * (haloK * sunUp);
 
   // 3. moon: the retail phase texture on its disc; the texture alpha masks the disc
   let moonR = uniforms.skyCloudAmb.a;
@@ -317,7 +318,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     // far clouds sink into the haze (aerial perspective toward the sky behind them) and fade at the horizon
     let haze = 1.0 - exp(-s0 / 38.0);
     let fadeV = smoothstep(-0.03, 0.02, dir.y) * (1.0 - smoothstep(55.0, 90.0, s0));
-    let aV = (1.0 - T) * fadeV * (1.0 - 0.8 * brk);
+    let aV = (1.0 - T) * fadeV * (1.0 - 0.65 * brk);
     var colV = mix(L / max(1.0 - T, 1e-4), atmo, haze * 0.75);
     // rain clouds are grey, not sky-blue
     colV = mix(colV, vec3f(skyLum(colV)) * vec3f(0.93, 0.96, 1.0), 0.65 * uniforms.skyCloud1.y);
