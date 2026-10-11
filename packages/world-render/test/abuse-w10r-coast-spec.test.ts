@@ -70,7 +70,13 @@ describe.skipIf(!hasExport)('H-CST on the shipped jangan-fields export', () => {
     const b = e.r.blocks?.[Math.min(5, Math.floor(lz / 320)) * 6 + Math.min(5, Math.floor(lx / 320))]
     return { h: terrainHeightAt(e.t.heights, lx, lz), water: b?.water ?? null }
   }
-  const inBounds = (x: number, z: number) => x > m.bounds!.minX && x < m.bounds!.maxX && z > m.bounds!.minZ && z < m.bounds!.maxZ
+  /** The coast's frozen set (stream.playable) in glTF metres: since the beaches pass (docs/COAST.md §9.5) manifest.bounds
+   *  reaches the sea, so "the bounds" of the coast's rules are the frozen rectangle, not the walkable one. */
+  const frozen = () => {
+    const p = m.stream!.playable, o = m.space.originRegion
+    return { minX: 192 * (p.x0 - o.x), maxX: 192 * (p.x1 + 1 - o.x), minZ: -192 * (p.z1 + 1 - o.z), maxZ: -192 * (p.z0 - o.z) }
+  }
+  const inBounds = (x: number, z: number) => { const b = frozen(); return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ }
   // every height patch (S1, and S2-bank since the W10R fix: the river channel beside S1 is the patch's sea)
   const inPatch = (x: number, z: number) => patches.some(p => RX(x) > p.x[0] && RX(x) <= p.x[1] && RZ(z) >= p.z[0] && RZ(z) < p.z[1])
   // Option A's corridor is retail scenery, bit for bit (COAST C12): its banks are retail's own
@@ -78,7 +84,7 @@ describe.skipIf(!hasExport)('H-CST on the shipped jangan-fields export', () => {
   /** Within 2 m outside the bounds line, the point mirrored across it is dry ground more than 0.5 m under the sea
    *  level with no water block: the plane's edge there is retail's own in-bounds edge, carried one lattice cell on. */
   const retailEdgeCarried = (x: number, z: number) => {
-    const b = m.bounds!
+    const b = frozen()
     const mx = x > b.maxX && x - b.maxX < 2 ? 2 * b.maxX - x : x < b.minX && b.minX - x < 2 ? 2 * b.minX - x : null
     const mz = z > b.maxZ && z - b.maxZ < 2 ? 2 * b.maxZ - z : z < b.minZ && b.minZ - z < 2 ? 2 * b.minZ - z : null
     if (mx === null && mz === null) return false
