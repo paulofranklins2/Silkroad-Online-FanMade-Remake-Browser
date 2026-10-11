@@ -36,9 +36,11 @@ export const PERF = {
   pipelinesInPlay: true,
   /**
    * New meshes in play have their effects compiled in a budgeted pass and are drawn out of view (as ghosts) for a few
-   * frames, so their pipelines exist before the camera turns to them (screens/pipelines.ts watchScene).
+   * frames, so their pipelines exist before the camera turns to them (screens/pipelines.ts watchScene). **Off** since
+   * round 6 (docs/PERF_OVERALL.md): on the discrete GPU the route had 23 frames over 33 ms with it and 13 without (the
+   * in-play pipeline rule and the persistent effects already remove the stalls it was for); kept for the bench's A/B.
    */
-  prewarmNew: true,
+  prewarmNew: false,
   /**
    * Babylon's Effect.PersistentMode (engine.ts): a compiled effect (shader variant) is kept when its last material goes,
    * instead of being released and compiled again, pipelines and all, when the next character of that look appears.
