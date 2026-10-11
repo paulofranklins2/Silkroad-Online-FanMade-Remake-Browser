@@ -526,6 +526,12 @@ export class Gameplay implements AiHost {
     ]
     this.routes = buildRoutes(this.modules, CORE_REQUESTS)
     this.world.onTick = (now) => this.tick(now)
+    // docs/NETWORK_AUDIT.md R1: party and guild members are never hidden by the crowd cap
+    this.world.alsoMustSee = (v, o) => {
+      if (this.party.sameParty(v, o)) return true
+      const g = this.guilds.guildOf(v)
+      return g !== null && g === this.guilds.guildOf(o)
+    }
   }
 
   /** Runs `hook` on every module (a throwing module is logged and skipped). */
@@ -1265,6 +1271,8 @@ export class Gameplay implements AiHost {
       // The Climb's combat linger (docs/CLIMB.md §6.1, F6): the last monster damage.
       if (dealt > 0 && a.kind === 'mob') t.lastMobHitAt = now
       if (pvp) this.hunters.onPvpHit(a, t, dealt, now)
+      // docs/NETWORK_AUDIT.md R1: fighters stay visible to each other in a crowd
+      if (pvp && a.kind === 'player') this.world.noteFoes(a, t, now)
       if (subdue && a.kind === 'player') this.hunters.subdue(a, t, now)
       if (killed) this.playerDied(t, now, a)
     }

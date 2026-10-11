@@ -418,6 +418,7 @@ export class AdminApi {
         ticks: w.ticks,
         tickRate,
         worstTickMs: Math.round(w.worstTickMs * 100) / 100,
+        maxVisiblePlayers: w.maxVisiblePlayers,
         registration: ctx.config.registrationOpen === false ? 'closed' : 'open',
         restart: typeof ctx.requestRestart === 'function',
         pendingRestart: this.settings.pending(),

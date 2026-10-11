@@ -262,6 +262,7 @@ export async function startServer(config: ServerConfig): Promise<GameServer> {
   const nav = loadNav(config, setup.bounds)
   const world = new World(config.world, config.moveSpeed, config.tickHz, setup.bounds, nav)
   world.viewRange = config.viewRange
+  if (config.maxVisiblePlayers !== undefined) world.maxVisiblePlayers = config.maxVisiblePlayers
   // Only places a GM can stand on stay in the tp list (the rest are logged and skipped).
   setup.places = checkPlaces(setup.places, world, nav, [config.world.toLowerCase(), 'spawn'], config.log)
   let tickErrors = 0

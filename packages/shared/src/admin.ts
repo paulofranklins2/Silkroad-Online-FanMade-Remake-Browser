@@ -93,6 +93,8 @@ export interface AdminServerInfo {
   /** Ticks per second measured since the previous dashboard poll (null on the first). */
   tickRate: number | null
   worstTickMs: number
+  /** Crowd cap (docs/NETWORK_AUDIT.md R1): most players one client is shown at once (0 = no cap). Optional: older servers. */
+  maxVisiblePlayers?: number
   registration: 'open' | 'closed'
   /** A supervisor (systemd) restarts the server when it exits: the Restart button works. */
   restart: boolean

@@ -32,7 +32,7 @@ export function dashboardPage(root: HTMLElement): () => void {
     const full = s.capacity > 0 ? s.online / s.capacity : 0
     clear(
       info,
-      stat('accounts', 'Online', h('span', null, fmtNum(s.online), h('span', { class: 'stat-of' }, ` / ${fmtNum(s.capacity)}`)), `players · ${s.lobby} in the lobby`, full >= 0.9 ? 'bad' : 'none', h('progress', { class: 'meter', max: Math.max(1, s.capacity), value: s.online, 'aria-label': 'Capacity used' })),
+      stat('accounts', 'Online', h('span', null, fmtNum(s.online), h('span', { class: 'stat-of' }, ` / ${fmtNum(s.capacity)}`)), `players · ${s.lobby} in the lobby${s.maxVisiblePlayers ? ` · each sees the nearest ${s.maxVisiblePlayers}` : ''}`, full >= 0.9 ? 'bad' : 'none', h('progress', { class: 'meter', max: Math.max(1, s.capacity), value: s.online, 'aria-label': 'Capacity used' })),
       stat('clock', 'Uptime', fmtDuration(s.uptimeS * 1000), `since ${fmtTime(s.startedAt)}`),
       stat('pulse', 'Server tick', s.tickRate === null ? `${s.tickHz} Hz` : `${s.tickRate.toFixed(1)} Hz`, `target ${s.tickHz} Hz · worst ${s.worstTickMs} ms`, tickOk ? 'ok' : 'bad'),
       stat('globe', 'World', s.name, `${s.world} · export ${s.worldExport}`),

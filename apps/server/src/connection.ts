@@ -322,7 +322,8 @@ export class Connection {
           return
         }
         if (!this.chatBucket.take()) return this.error('rate_limited', 'you are chatting too fast', msg.t)
-        this.game.world.broadcast({ t: 'chat', channel: 'local', fromId: this.player.id, from: this.player.name, text })
+        // Local chat reaches the players within view range, like retail (docs/NETWORK_AUDIT.md R5; it was world-wide)
+        this.game.world.sayLocal(this.player, { t: 'chat', channel: 'local', fromId: this.player.id, from: this.player.name, text })
         return
       }
       case 'leaveWorld':

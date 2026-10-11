@@ -84,6 +84,13 @@ export interface Player extends Mover {
   speedMul: number
   /** Entity ids this player's client has spawned (interest management). */
   known: Set<number>
+  /**
+   * Crowd cap (docs/NETWORK_AUDIT.md R1): the player ids this viewer may see while more than maxVisiblePlayers are in
+   * range (chosen by the last interest pass); null = no cap in force (every player in range is shown).
+   */
+  crowd?: Set<number> | null
+  /** Players this one fought (hit or was hit by) and when (ms): always visible to each other for FOE_MEMORY_MS. */
+  foes?: Map<number, number>
   // ---- gameplay ----
   gender: 'male' | 'female'
   radius: number
@@ -302,6 +309,13 @@ export function wireYaw(y: number): number {
   return Math.round(y * 1000) / 1000
 }
 
+/** Crowd cap default (MAX_VISIBLE_PLAYERS): the nearest this many players are shown when more are in range. */
+export const MAX_VISIBLE_PLAYERS = 100
+/** A player already shown counts as this much nearer (m) when the crowd is re-picked, so the edge does not flicker. */
+export const CROWD_SWAP_M = 8
+/** A player fight keeps both sides visible to each other this long after the last hit (ms). */
+export const FOE_MEMORY_MS = 15_000
+
 export const DEFAULT_VIEW_RANGE = 120
 /** An entity is despawned only once it is this much farther than the view range (no flicker at the edge). */
 export const VIEW_HYSTERESIS_M = 10
@@ -336,6 +350,12 @@ export class World {
   /** Siege of Jangan, layer 4 (siege/event.ts): clips a siege monster's walk at the gate wards (null: no ward in the way). */
   mobWalkClip: ((m: Mob, ax: number, az: number, bx: number, bz: number) => [number, number] | null) | null = null
   viewRange = DEFAULT_VIEW_RANGE
+  /** Crowd cap (0 = off): see Player.crowd. */
+  maxVisiblePlayers = MAX_VISIBLE_PLAYERS
+  /**
+   * Gameplay's "always show" rule on top of the built-in one (targets, foes): party and guild members (gameplay.ts).
+   */
+  alsoMustSee: ((viewer: Player, other: Player) => boolean) | null = null
   private nextEntityId = 1
   private timer: NodeJS.Timeout | null = null
   private interestAt = 0
@@ -626,8 +646,9 @@ export class World {
   /** Everything in `p`'s view range, marked as known (for worldEnter.entities). */
   snapshotFor(p: Player, now = Date.now()): EntityState[] {
     const out: EntityState[] = []
+    this.pickCrowd(p, this.players.values(), now)
     for (const e of this.allEntities()) {
-      if (e.id === p.id || !this.canSee(p, e) || !this.inRange(p, e, now, false)) continue
+      if (e.id === p.id || !this.canSee(p, e) || !this.inRange(p, e, now, false) || this.crowded(p, e, now)) continue
       p.known.add(e.id)
       out.push(this.state(e))
     }
@@ -883,7 +904,7 @@ export class World {
 
   /** Spawns `e` for `viewer` if it may see it and it is in range. */
   private reveal(viewer: Player, e: Entity, now: number): void {
-    if (viewer.id === e.id || viewer.known.has(e.id) || !this.canSee(viewer, e) || !this.inRange(viewer, e, now, false)) return
+    if (viewer.id === e.id || viewer.known.has(e.id) || !this.canSee(viewer, e) || !this.inRange(viewer, e, now, false) || this.crowded(viewer, e, now)) return
     viewer.known.add(e.id)
     viewer.send({ t: 'spawn', entity: this.state(e) })
   }
@@ -893,7 +914,7 @@ export class World {
     for (const e of candidates) this.reveal(v, e, now)
     for (const id of [...v.known]) {
       const e = this.entity(id)
-      if (!e || !this.canSee(v, e) || !this.inRange(v, e, now, true)) {
+      if (!e || !this.canSee(v, e) || !this.inRange(v, e, now, true) || this.crowded(v, e, now)) {
         v.known.delete(id)
         v.send({ t: 'despawn', id })
       }
@@ -902,7 +923,11 @@ export class World {
 
   /** After a teleport: what `p` sees (if a player) and who sees `p`. */
   refreshAround(p: Entity, now: number): void {
-    if (p.kind === 'player') this.refreshViewer(p, this.allEntities(), now)
+    if (p.kind === 'player') {
+      // a warp into a crowd: pick its crowd there first (not every player of the town at once)
+      this.pickCrowd(p, this.players.values(), now)
+      this.refreshViewer(p, this.allEntities(), now)
+    }
     for (const v of this.players.values()) {
       if (v.id === p.id) continue
       if (v.known.has(p.id)) {
@@ -951,7 +976,86 @@ export class World {
       const cz = Math.floor(z / cell)
       const near: Entity[] = []
       for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) near.push(...(grid.get(key(cx + i, cz + j)) ?? []))
+      this.pickCrowd(v, near, now)
       this.refreshViewer(v, near, now)
+    }
+  }
+
+  // ---- crowd cap (docs/NETWORK_AUDIT.md R1) ----
+
+  /** Whether `e` is a player hidden from `viewer` by the crowd cap. */
+  private crowded(viewer: Player, e: Entity, now: number): boolean {
+    return e.kind === 'player' && !!viewer.crowd && !viewer.crowd.has(e.id) && !this.mustSee(viewer, e, now)
+  }
+
+  /**
+   * Players a viewer always sees, however crowded: its attack/skill target and whoever targets it, players it fought
+   * (hit or was hit by) within FOE_MEMORY_MS — PvP cape fights and Bounty Hunter vs Wanted alike — and gameplay's
+   * own rule (alsoMustSee: party and guild members).
+   */
+  mustSee(viewer: Player, other: Player, now: number): boolean {
+    const va = viewer.action
+    if (va && (va.kind === 'attack' || va.kind === 'skill') && va.target === other.id) return true
+    const oa = other.action
+    if (oa && (oa.kind === 'attack' || oa.kind === 'skill') && oa.target === viewer.id) return true
+    const t = viewer.foes?.get(other.id)
+    if (t !== undefined && now - t < FOE_MEMORY_MS) return true
+    return this.alsoMustSee?.(viewer, other) ?? false
+  }
+
+  /** A player-vs-player hit: both stay visible to each other for FOE_MEMORY_MS. */
+  noteFoes(a: Player, b: Player, now: number): void {
+    ;(a.foes ??= new Map()).set(b.id, now)
+    ;(b.foes ??= new Map()).set(a.id, now)
+    for (const p of [a, b]) if (p.foes!.size > 32) for (const [id, at] of p.foes!) if (now - at >= FOE_MEMORY_MS) p.foes!.delete(id)
+  }
+
+  /**
+   * Picks `viewer.crowd` from the players among `candidates`: null while at most maxVisiblePlayers are in view range,
+   * else the must-see ones plus the nearest others up to the cap, where a player already shown counts CROWD_SWAP_M
+   * nearer (hysteresis: a newcomer has to be clearly closer to take its place).
+   */
+  pickCrowd(viewer: Player, candidates: Iterable<Entity>, now: number): void {
+    const max = this.maxVisiblePlayers
+    viewer.crowd = null
+    if (max <= 0) return
+    const anchor = this.viewAnchor(viewer)
+    const a = this.posCache?.get(anchor) ?? this.positionAt(anchor, now)
+    const r = this.viewRange + VIEW_HYSTERESIS_M
+    const rest: { id: number; d: number }[] = []
+    const keep = new Set<number>()
+    for (const e of candidates) {
+      if (e.kind !== 'player' || e.id === viewer.id || !this.canSee(viewer, e)) continue
+      const b = this.posCache?.get(e) ?? this.positionAt(e, now)
+      const d = Math.hypot(a[0] - b[0], a[2] - b[2])
+      if (d > r) continue
+      if (this.mustSee(viewer, e, now)) keep.add(e.id)
+      else rest.push({ id: e.id, d: viewer.known.has(e.id) ? d - CROWD_SWAP_M : d })
+    }
+    if (keep.size + rest.length <= max) return
+    rest.sort((x, y) => x.d - y.d)
+    for (const x of rest) {
+      if (keep.size >= max) break
+      keep.add(x.id)
+    }
+    viewer.crowd = keep
+  }
+
+  /**
+   * Local chat (docs/NETWORK_AUDIT.md R5): to every player within viewRange of the speaker (the crowd cap does not
+   * apply: you hear the players you may not be shown). The speaker always gets its own line.
+   */
+  sayLocal(speaker: Player, msg: ServerMessage, now = Date.now()): void {
+    const at = this.positionAt(speaker, now)
+    const r2 = this.viewRange * this.viewRange
+    for (const p of this.players.values()) {
+      if (p.id === speaker.id) {
+        p.send(msg)
+        continue
+      }
+      const anchor = this.viewAnchor(p)
+      const q = this.positionAt(anchor, now)
+      if ((q[0] - at[0]) ** 2 + (q[2] - at[2]) ** 2 <= r2) p.send(msg)
     }
   }
 

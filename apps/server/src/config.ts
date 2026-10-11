@@ -72,6 +72,8 @@ export interface ServerConfig {
   rolePollMs: number
   /** Interest radius in metres: clients receive entities within this distance (VIEW_RANGE, default 120). */
   viewRange: number
+  /** Crowd cap (MAX_VISIBLE_PLAYERS, default 100, 0 = off): the nearest this many players are shown (docs/NETWORK_AUDIT.md R1). Absent = the default. */
+  maxVisiblePlayers?: number
   /** Nests whose monster is above this level stay empty (MOB_LEVEL_MAX, default LEVEL_CAP + 5; 0 = all). */
   mobLevelMax: number
   /** Spawn nest monsters at all (SPAWN_MOBS, default on). */
@@ -496,6 +498,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     levelCap,
     rolePollMs: 1000,
     viewRange: num(env, 'VIEW_RANGE', 120, 20, 2000),
+    maxVisiblePlayers: Math.floor(num(env, 'MAX_VISIBLE_PLAYERS', 100, 0, 10_000)),
     mobLevelMax: Math.floor(num(env, 'MOB_LEVEL_MAX', levelCap + 5, 0, 1000)),
     climb: onOff(env, 'CLIMB', true),
     climbRoles: onOff(env, 'CLIMB_ROLES', true),
