@@ -80,6 +80,13 @@ export const PREWARM_BUDGET_MS = 2
 export const PREWARM_MAX = 64
 /** Frames a prewarmed mesh is drawn out of view at most (its pipelines are usually made within 2-3). */
 export const PREWARM_FRAMES = 8
+/**
+ * Only meshes likely to come into view are prewarmed (round 3: prewarming everything cost ≈ 1 ms a frame and compiled
+ * effects of meshes nobody looked at): within PREWARM_RADIUS_M of the camera and within the view's half-angle +
+ * PREWARM_SIDE_RAD of where it looks (a turn of up to 90° finds them ready). The others wait in the queue.
+ */
+export const PREWARM_RADIUS_M = 140
+export const PREWARM_SIDE_RAD = Math.PI / 2
 /** Frames a new mesh waits before its first prewarm try (its material is set after it is made), and tries at most. */
 const PREWARM_DELAY = 2
 const PREWARM_TRIES = 30
@@ -176,11 +183,11 @@ export class PipelineWarm {
   watchScene(scene: Scene): void {
     if (this.watched?.scene === scene) return
     this.watched?.off()
-    const queue: { m: AbstractMesh; at: number; tries: number }[] = []
+    const queue: { m: AbstractMesh; at: number; tries: number; waits: number }[] = []
     const held = new Map<AbstractMesh, { frames: number; undo: () => void }>()
     let frame = 0
     const added: Observer<AbstractMesh> | null = scene.onNewMeshAddedObservable.add(m => {
-      if (PERF.prewarmNew && queue.length < 4 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0 })
+      if (PERF.prewarmNew && queue.length < 16 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
     })
     const release = (m: AbstractMesh) => {
       held.get(m)?.undo()
@@ -191,6 +198,10 @@ export class PipelineWarm {
       for (const [m, h] of held) if (m.isDisposed() || ++h.frames >= PREWARM_FRAMES || (h.frames >= 2 && this.pending.size === 0)) release(m)
       if (!queue.length) return
       const t0 = performance.now()
+      const cam = scene.activeCamera
+      const eye = cam?.globalPosition
+      const fwd = cam?.getForwardRay(1).direction
+      const cone = Math.cos(Math.min(Math.PI, (cam?.fov ?? 0.8) * 0.9 + PREWARM_SIDE_RAD))
       for (let i = 0; i < queue.length && held.size < PREWARM_MAX; ) {
         if (performance.now() - t0 > PREWARM_BUDGET_MS) break
         const q = queue[i]!
@@ -202,6 +213,22 @@ export class PipelineWarm {
         if (m.isDisposed() || !m.isEnabled() || !m.isVisible || !m.material || m.getTotalVertices() === 0 || m.alwaysSelectAsActiveMesh) {
           queue.splice(i, 1)
           continue
+        }
+        if (eye && fwd) {
+          // not likely to come into view (far, or behind): left for later (the in-play skip covers a surprise)
+          const c = m.getBoundingInfo().boundingSphere.centerWorld
+          const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z
+          const d = Math.hypot(dx, dy, dz)
+          const r = m.getBoundingInfo().boundingSphere.radiusWorld
+          if (d - r > PREWARM_RADIUS_M || (d > r && (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d < cone)) {
+            // look again in a quarter second; after ≈ 30 s it is left to the in-play skip
+            if (++q.waits > 120) queue.splice(i, 1)
+            else {
+              q.at = frame + 15
+              i++
+            }
+            continue
+          }
         }
         let ready = false
         try {
