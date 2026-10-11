@@ -225,6 +225,36 @@ OK. Players on dual-GPU PCs can land on the iGPU the same way (the first-run pre
 integrated). The bench's numbers need the discrete GPU back (Windows Settings → Display → Graphics → Chrome → High
 performance, or the monitor on the RX 9060 XT) before any further GPU comparison.
 
+## Round 6: back on the RX 9060 XT (2026-10-11)
+
+With Chrome set to the graphics card (Windows' graphics preference) the bench logs `rdna-4` / "AMD Radeon RX 9060 XT"
+again and the GPU frame is p50 2.4–2.6 / p95 3.7 ms in every run. WebGPU Medium, 8 bots, 1920 × 1080, the route, one
+build, each run under the bench lock at 11–19 % machine CPU:
+
+| Run | frames > 33 ms | > 50 ms | > 100 ms | p99 | max | CPU p50 / p95 | despawn p95 / max | garbage |
+|---|---|---|---|---|---|---|---|---|
+| r7before: all four switches off | 27 | 20 | 11 | 44 ms | 559 ms | 9.7 / 16.3 | – | 31 MB/s |
+| r8before: pipelinesInPlay, effectsPersistent, shaderReadyCache off | 35 | 25 | 13 | 66 ms | 457 ms | 9.1 / 16.0 | 1.4 / 40 ms | 44 MB/s |
+| r7noCache: prewarm on, readiness cache off | 23 | 6 | 1 | 34 ms | 105 ms | 9.5 / 17.6 | – | 40 MB/s |
+| r7noPrewarm: prewarm off, the rest on | 13 | 5 | 1 | 32 ms | 104 ms | 8.8 / 16.6 | 9.6 / 63 ms | 31 MB/s |
+| **r8after: the new defaults** (prewarm off) | **21** | **9** | **0** | **33 ms** | **99 ms** | 9.2 / 17.8 | 2.9 / 41 ms | 33 MB/s |
+| **r8after2: the same again** | **17** | **5** | **0** | **32 ms** | **99 ms** | 9.0 / 16.8 | 1.6 / 35 ms | 30 MB/s |
+
+- **The prewarm is off by default** (`PERF.prewarmNew`): with the in-play pipeline rule and the persistent effects it
+  added frames over 33 ms (23 with, 13 without) and saved no stall.
+- Every frame over 100 ms is gone (11–13 with the switches off); p99 halves; the GPU frame is unchanged (2.5 ms).
+- Despawn: the scene's active-mesh and rendering-group lists are now reset once per actor (they were 11 ms of a 62 ms
+  despawn). One despawn per route still takes 35–41 ms: the actor's nodes' own dispose observers and child recursion
+  (`Node.dispose` 17 ms inclusive in the 62 ms one); next to look at.
+- The remaining frames over 33 ms (17–21) are mostly a 99 ms frame with 15 ms of JS (a GPU/compositor wait, no
+  pipeline made at a draw) and the one despawn.
+- Chrome's memory on the card: GPU process 2.0–3.0 GB, renderer 2.7–2.8 GB (JS heap ≈ 2 GB), not the 1.5 GB target:
+  textures Babylon tracks are ≈ 1.1 GB (the licensed bodies' 2048² textures uncompressed: 280 MB), the rest is buffers,
+  pipelines and Chrome's own; no growth over a 70 s watch (no leak). Still open.
+- **Integrated-GPU notice** (gpu-integrated.ts, gpu-help.ts): when the browser draws with the processor's graphics, a
+  dismissible notice explains Windows Settings → System → Display → Graphics → High performance; once per session on a
+  likely dual-GPU PC (a desktop processor's minimal graphics) until "Don't show again", once ever otherwise.
+
 ## Plan (next)
 
 0. **Prewarm cost** (the 33–50 ms band): compile at most one new effect per frame (an effect compile is the unit, not a
