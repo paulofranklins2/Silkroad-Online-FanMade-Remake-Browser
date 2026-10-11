@@ -209,7 +209,9 @@ async function main(): Promise<void> {
             const { profile } = await page.send('HeapProfiler.stopSampling', {}, 300_000)
             writeFileSync(join(OUT, `${CONFIGS[ci]}.alloc.txt`), topAlloc(profile).join(String.fromCharCode(10)))
           }
-          writeFileSync(join(OUT, `${CONFIGS[ci]}.route.json`), JSON.stringify({ config: CONFIGS[ci], adapter, machineCpu: cpuDuring(t0, Date.now()), ...r }, null, 1))
+          const chromeMB = page.memory()
+          log(`${CONFIGS[ci]}: chrome memory ${JSON.stringify(chromeMB)}`)
+          writeFileSync(join(OUT, `${CONFIGS[ci]}.route.json`), JSON.stringify({ config: CONFIGS[ci], adapter, machineCpu: cpuDuring(t0, Date.now()), chromeMB, ...r }, null, 1))
           const report = page.logs.filter(l => l.includes('[bench] route')).at(-1) ?? ''
           summary.push(`## ${CONFIGS[ci]}`, report, `machine CPU during the run: ${JSON.stringify(cpuDuring(t0, Date.now()))}`, '')
           log(`${CONFIGS[ci]}: route done (${r.probe?.frames} frames, p95 ${r.probe?.frameMs?.p95} ms, >33 ms ${r.probe?.over33})`)
@@ -435,6 +437,7 @@ interface AllocNode {
 
 interface Page {
   pid: number | undefined
+  memory(): Record<string, number>
   send(method: string, params?: object, timeoutMs?: number): Promise<any>
   logs: string[]
   ev(expr: string, timeoutMs?: number): Promise<unknown>
@@ -529,6 +532,22 @@ async function openChrome(o: { preset: string; headed: boolean }): Promise<Page>
   await send('Page.navigate', { url: `http://localhost:${PAGE_PORT}/?charbench=1&bench=1&skip=1&mute=1${QUERY ? '&' + QUERY : ''}` })
   return {
     pid: chrome.pid,
+    /** This Chrome's processes' working sets (MB) by type (gpu-process, renderer, browser, ...), summed. */
+    memory(): Record<string, number> {
+      try {
+        const tag = dir.split(/[\\/]/).pop()!
+        const ps = `Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -match '${tag}' } | ForEach-Object { $t = if ($_.CommandLine -match '--type=([a-z-]+)') { $Matches[1] } else { 'browser' }; $t + ' ' + [math]::Round($_.WorkingSetSize/1MB) }`
+        const out = execSync(`powershell -NoProfile -Command "${ps}"`, { encoding: 'utf8', timeout: 20000 })
+        const by: Record<string, number> = {}
+        for (const line of out.split(/\r?\n/)) {
+          const [t, mb] = line.trim().split(' ')
+          if (t && mb) by[t] = (by[t] ?? 0) + Number(mb)
+        }
+        return by
+      } catch {
+        return {}
+      }
+    },
     logs,
     send,
     ev,
