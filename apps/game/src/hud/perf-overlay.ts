@@ -10,6 +10,7 @@ import { t } from '../i18n/index.ts'
 import { settings, type Settings, type SettingsStore } from '../settings.ts'
 import { el } from '../ui/dom.ts'
 import { ensureUxStyles } from './ux-style.ts'
+import { gpuDiagLine } from '../gpu-profile.ts'
 
 export interface PerfSample {
   engine: string
@@ -66,7 +67,9 @@ export class PerfOverlay {
   /** Skipped while hidden (no text layout for nobody). */
   update(p: PerfSample): void {
     if (this.root.hidden) return
-    this.root.textContent = perfText(p)
+    // the GPU line (gpu-profile.ts): what the device offered, for players' screenshots
+    const gpu = gpuDiagLine()
+    this.root.textContent = gpu ? `${perfText(p)}\n${gpu}` : perfText(p)
   }
 
   get visible(): boolean {
