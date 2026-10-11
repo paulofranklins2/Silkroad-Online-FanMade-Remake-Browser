@@ -213,6 +213,10 @@ export class FrameProbe {
     // what a mesh's dispose costs besides the observers: the scene's list removal
     this.wrap(scene, 'removeMesh', 'bjs.scene.removeMesh')
     this.wrap(scene, 'removeTransformNode', 'bjs.scene.removeTransformNode')
+    this.wrap(scene, 'freeActiveMeshes', 'bjs.scene.freeActiveMeshes')
+    this.wrap(scene, 'freeRenderingGroups', 'bjs.scene.freeRenderingGroups')
+    this.wrap(eng, 'wipeCaches', 'bjs.engine.wipeCaches')
+    this.wrap(scene.renderingManager, 'restoreDispachedFlags', 'bjs.renderingManager.restoreDispachedFlags')
     const E = eng as unknown as Record<string, Observable<unknown>>
     for (const n of ['onBeginFrameObservable', 'onEndFrameObservable']) this.wrapObservable(E[n], 'obs.' + n.replace(/^on|Observable$/g, ''))
   }
