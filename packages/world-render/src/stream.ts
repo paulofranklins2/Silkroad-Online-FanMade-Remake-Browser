@@ -783,19 +783,30 @@ export class RegionStreamer implements ChunkHost {
     if (!this.disposed) this.step(this.now())
   }
 
+  /** Moving average of a budgeted job's time (ms): the step starts no job that would likely overrun the budget. */
+  private jobMs = 0
+
   private step(t0: number): void {
     const budget = this.booting ? Math.max(BOOT_BUDGET_MS, this.settings.frameBudgetMs) : this.settings.frameBudgetMs
     if (this.pendingSteps.length) this.releaseDueSteps(t0)
     let ran = 0
     for (;;) {
+      // Overall Pass (docs/PERF_OVERALL.md): a job is not started when the typical job (jobMs, the recent jobs' moving
+      // average) would no longer fit; the frame used to run one more job past the budget (4 ms budget, 11.6 ms frames)
+      if (ran > 0 && !this.booting) {
+        const used = this.now() - t0
+        if (used > budget / 2 && used + this.jobMs > budget + 0.25) break
+      }
       const job = this.jobs.pop()
       if (!job) break
       if (job.chunk && !job.chunk.alive) continue
+      const j0 = this.now()
       try {
         job.run()
       } catch (err) {
         console.warn('[world] stream job failed:', err)
       }
+      this.jobMs += (this.now() - j0 - this.jobMs) * 0.2
       ran++
       if (this.now() - t0 >= budget) break
     }

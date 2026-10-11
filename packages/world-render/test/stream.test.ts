@@ -164,6 +164,8 @@ describe('RegionStreamer (synthetic 7 x 7 world)', () => {
     t.buildRegion = (...args) => (tick(1), b(...args))
     w.addRegion = (...args) => (tick(1), a(...args))
     n.addRegion = (...args) => (tick(1), r(...args))
+    // (the step's job-time average still remembers the 5 ms jobs: a few frames to learn the cheap ones)
+    for (let i = 0; i < 5; i++) stream.update(c, null)
     const mid = stream.stats.jobs
     stream.update(c, null)
     expect(stream.stats.jobs).toBe(mid - 4)
