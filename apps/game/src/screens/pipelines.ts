@@ -254,13 +254,14 @@ export class PipelineWarm {
           continue
         }
         const hidden = !m.isEnabled() || !m.isVisible
-        if (!hidden && eye && fwd) {
-          // not likely to come into view (far, or behind): left for later (the in-play skip covers a surprise)
+        if (eye && fwd) {
+          // not likely to come into view (far, or behind; a hidden mesh: far): left for later (the in-play skip covers a
+          // surprise). Round 5: compiling every hidden mesh (LODs included) was ≈ 16 % of the route's garbage.
           const c = m.getBoundingInfo().boundingSphere.centerWorld
           const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z
           const d = Math.hypot(dx, dy, dz)
           const r = m.getBoundingInfo().boundingSphere.radiusWorld
-          if (d - r > PREWARM_RADIUS_M || (d > r && (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d < cone)) {
+          if (d - r > PREWARM_RADIUS_M || (!hidden && d > r && (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d < cone)) {
             // look again in a quarter second; after ≈ 150 s it is left to the in-play skip
             if (++q.waits > 600) queue.splice(i, 1)
             else {
