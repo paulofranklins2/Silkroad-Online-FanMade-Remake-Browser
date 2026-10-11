@@ -109,6 +109,8 @@ export class CharBench {
     // the perf audit's A/B switches (docs/PERF_AUDIT.md; the driver's --ab <name>)
     ;(window as unknown as { __sroPerf?: typeof PERF }).__sroPerf = PERF
     instrumentClasses(this.probe)
+    // `?perfoff=a,b` (the driver's --query): those PERF switches off from the first frame (a cold before-run of a fix)
+    for (const k of new URLSearchParams(location.search).get('perfoff')?.split(',') ?? []) if (k in PERF) (PERF as Record<string, boolean>)[k] = false
     console.info('[charbench] ready: await __sroCharBench.measure("x"); __sroCharBench.census(); __sroCharBench.view("mid")')
   }
 
