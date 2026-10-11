@@ -94,8 +94,9 @@ describe('eye adaptation (LIGHTING §2)', () => {
 })
 
 describe('soft shadows (LIGHTING §4)', () => {
-  it('PCF on every preset (PCSS is wired but off, docs/LIGHTING.md §4), nothing on Low', () => {
-    for (const p of ['medium', 'high', 'ultra'] as const) expect(csmSettings(RENDER_PRESETS[p].shadows!).soft).toBe(0)
+  it('PCF on Medium and High, PCSS (contact hardening) on Ultra (docs/LIGHTING.md §4, §8), nothing on Low', () => {
+    for (const p of ['medium', 'high'] as const) expect(csmSettings(RENDER_PRESETS[p].shadows!).soft).toBe(0)
+    expect(csmSettings(RENDER_PRESETS.ultra.shadows!).soft).toBe(0.012)
     expect(csmSettings({ ...RENDER_PRESETS.high.shadows!, soft: 0.015 }).soft).toBe(0.015)
     expect(RENDER_PRESETS.low.shadows).toBeNull()
     expect(RENDER_PRESETS.low.eyeAdaptation).toBeFalsy()

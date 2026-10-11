@@ -31,7 +31,8 @@ export type GpuLimitsMode = 'max' | 'default'
  * PC GPUs; ASTC and ETC2 on Apple silicon, where BC may be missing: the friends' Macs, the 9B handoff) and GPU timers
  * (perf overlay).
  */
-export const WANTED_GPU_FEATURES = ['texture-compression-bc', 'texture-compression-astc', 'texture-compression-etc2', 'timestamp-query'] as const
+// 'float32-filterable': the PCSS sun shadows' float32 colour shadow map (Ultra; docs/LIGHTING.md §4, §8).
+export const WANTED_GPU_FEATURES = ['texture-compression-bc', 'texture-compression-astc', 'texture-compression-etc2', 'timestamp-query', 'float32-filterable'] as const
 
 /**
  * Ask for the discrete GPU on dual-GPU laptops (the friends play on gaming laptops; the coast doc's handoff):

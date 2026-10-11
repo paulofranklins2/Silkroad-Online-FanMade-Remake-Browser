@@ -252,7 +252,8 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     toneMap: 'neutral',
     lutGrade: true,
     bloom: 0, // Options → Bloom (BLOOM_LOOKS; the release shipped 1)
-    shadows: { cascades: 4, mapSize: 2048, distanceM: 250, foliageM: 60, terrain: true, props: true, soft: 0 },
+    // Item 16: PCSS contact-hardening shadows on Ultra (float32 shadow map; LIGHTING §8)
+    shadows: { cascades: 4, mapSize: 2048, distanceM: 250, foliageM: 60, terrain: true, props: true, soft: 0.012 },
     ibl: { cubeSize: 64, refreshS: 2 },
     nightLights: { cluster: 64, poolFallback: 2, terrainSplat: false, grassSplat: true },
     ssao: { halfRes: false, samples: 16 },

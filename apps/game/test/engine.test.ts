@@ -47,7 +47,7 @@ for (const [app, m] of [['game', game], ['viewer', viewer]] as const) {
     it('asks for ASTC and ETC2 on an Apple adapter without BC, and BC alone on a PC adapter (KTX2 targets)', () => {
       const apple = ['texture-compression-astc', 'texture-compression-etc2', 'timestamp-query', 'float32-filterable']
       const req = (have: string[]) => [...(m.webgpuEngineOptions(adapter(have), 'max').deviceDescriptor?.requiredFeatures ?? [])].sort()
-      expect(req(apple)).toEqual(['texture-compression-astc', 'texture-compression-etc2', 'timestamp-query'])
+      expect(req(apple)).toEqual(['float32-filterable', 'texture-compression-astc', 'texture-compression-etc2', 'timestamp-query'].filter(f => (m.WANTED_GPU_FEATURES as readonly string[]).includes(f))) // the game also wants float32-filterable (Ultra's PCSS map)
       expect(req(['texture-compression-bc', 'texture-compression-bc-sliced-3d'])).toEqual(['texture-compression-bc'])
       expect(req(['texture-compression-astc-hdr'])).toEqual([])
     })

@@ -1326,21 +1326,28 @@ export class WorldShadows implements RenderPart {
     }
   }
 
+  /** The generator was made with a float32 map request (PCSS). */
+  private floatMap = false
+
   private applyQuality(): void {
     const q = this.quality.shadows
     const next = q ? csmSettings(q, { webgl: !this.scene.getEngine().isWebGPU }) : null
-    const same = !!next && !!this.settings && next.mapSize === this.settings.mapSize && next.cascades === this.settings.cascades
+    // Item 16: PCSS wants a float32 colour shadow map (r16float quantised the blocker depths over the unclamped range,
+    // LIGHTING §4), which WebGPU filters only with 'float32-filterable' (apps/game engine.ts asks for it).
+    const wantFloat = !!next && next.soft > 0 && LIGHT_LOOK.softShadows
+    const same = !!next && !!this.settings && next.mapSize === this.settings.mapSize && next.cascades === this.settings.cascades && wantFloat === this.floatMap
     if (!same) {
       this.generator?.dispose()
       this.generator = null
       if (next && CascadedShadowGenerator.IsSupported) {
-        this.generator = new CascadedShadowGenerator(next.mapSize, this.light)
+        this.generator = new CascadedShadowGenerator(next.mapSize, this.light, wantFloat)
         // The last casters until the next refresh (dirty below): a receiver checked before it keeps its SHADOWn.
         const map = this.generator.getShadowMap()
         if (map && this.casters.length) map.renderList = this.casters.slice()
       }
     }
     this.settings = next
+    this.floatMap = wantFloat
     const g = this.generator
     if (g && next) {
       g.numCascades = next.cascades
