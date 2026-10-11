@@ -18,10 +18,18 @@
  * - **Ghost meshes** (`ghost`): their draws are never issued while they are ghosts, their pipelines are still made in
  *   the background. An actor about to appear is drawn this way for a few frames, then shown with every pipeline made.
  *
- * Draws outside a session and not of a ghost go straight to Babylon (one branch per draw). Not WebGPU, a Babylon whose
- * internals differ, or a disabled pipeline cache: `PipelineWarm.for` returns null and everything is as before.
+ * - **In play** (`PERF.pipelinesInPlay`, docs/PERF_OVERALL.md): a mesh draw whose pipeline is missing (a material
+ *   first seen while walking or turning the camera: streamed regions, a new character, a weather mesh) is made the
+ *   same way and skipped, so the mesh appears a frame or two later instead of the whole frame waiting 100-470 ms for
+ *   the GPU process to compile it (the route bench: 29 of 39 frames over 33 ms came within 3 frames of a new pipeline).
+ *   Only mesh draws (Mesh._draw: the main pass, shadow maps, prepasses): full-screen passes (post-processes, the sky's
+ *   LUTs) are drawn as before, a skipped one would leave a whole frame wrong.
+ *
+ * Other draws go straight to Babylon (one branch per draw). Not WebGPU, a Babylon whose internals differ, or a
+ * disabled pipeline cache: `PipelineWarm.for` returns null and everything is as before.
  */
-import type { AbstractEngine, AbstractMesh } from '@babylonjs/core'
+import { Mesh, type AbstractEngine, type AbstractMesh } from '@babylonjs/core'
+import { PERF } from '../world/perf.ts'
 
 type Token = object
 
@@ -61,6 +69,25 @@ type MeshDraw = (subMesh: unknown, fillMode: number, instancesCount?: number) =>
 
 const engines = new WeakMap<AbstractEngine, PipelineWarm | null>()
 
+/** Mesh draws in progress (Mesh._draw, patched once): the in-play rule only skips those. */
+let meshDrawDepth = 0
+let meshDrawPatched = false
+function patchMeshDraw(): void {
+  if (meshDrawPatched) return
+  meshDrawPatched = true
+  const proto = Mesh.prototype as unknown as { _draw?: MeshDraw }
+  const draw = proto._draw
+  if (typeof draw !== 'function') return
+  proto._draw = function (this: unknown, subMesh: unknown, fillMode: number, instancesCount?: number) {
+    meshDrawDepth++
+    try {
+      return draw.call(this, subMesh, fillMode, instancesCount)
+    } finally {
+      meshDrawDepth--
+    }
+  }
+}
+
 /** Babylon's texture state bits of the current draw (webgpuEngine.pure.js `_draw`, 9.28): float or depth textures. */
 function textureStateOf(e: EngineInternals): number {
   const ctx = e._currentMaterialContext
@@ -89,6 +116,8 @@ export class PipelineWarm {
   made = 0
   failed = 0
   skipped = 0
+  /** Mesh draws skipped in play for a pipeline being made (PERF.pipelinesInPlay). */
+  skippedInPlay = 0
 
   /** The engine's PipelineWarm (one per engine; null when the engine is not WebGPU or its internals differ). */
   static for(engine: AbstractEngine): PipelineWarm | null {
@@ -107,14 +136,17 @@ export class PipelineWarm {
   private constructor(private readonly e: EngineInternals) {
     const draw = e._draw
     const self = this
+    patchMeshDraw()
     e._draw = function (this: EngineInternals, drawType: number, fillMode: number, start: number, count: number, instancesCount?: number) {
-      if (self.sessions === 0 && self.ghostDepth === 0) return draw.call(this, drawType, fillMode, start, count, instancesCount)
+      const play = self.sessions === 0 && self.ghostDepth === 0
+      if (play && !(PERF.pipelinesInPlay && meshDrawDepth > 0)) return draw.call(this, drawType, fillMode, start, count, instancesCount)
       const snap = this._snapshotRendering
       if (snap?.play || snap?.record) return draw.call(this, drawType, fillMode, start, count, instancesCount)
       const state = self.prepare(this, fillMode)
       if (self.ghostDepth > 0) return
       if (state === 'cached') return draw.call(this, drawType, fillMode, start, count, instancesCount)
-      self.skipped++
+      if (play) self.skippedInPlay++
+      else self.skipped++
     }
   }
 

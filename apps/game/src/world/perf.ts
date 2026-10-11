@@ -28,6 +28,12 @@ export const PERF = {
    * unmerged (a LOD1 body of the §16.9 wardrobe export: ≈ 19 meshes instead of ≈ 6).
    */
   mergeRedo: true,
+  /**
+   * The Overall Pass stutter fix (docs/PERF_OVERALL.md): in play, a mesh draw whose WebGPU render pipeline is missing has
+   * it made in the background and is skipped until it is (screens/pipelines.ts), instead of the frame waiting for the
+   * GPU process to compile it. Off: Babylon makes it at the draw (the 100-470 ms hitches when walking / turning).
+   */
+  pipelinesInPlay: true,
 }
 
 export type PerfSwitch = keyof typeof PERF
