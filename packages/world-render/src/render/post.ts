@@ -74,6 +74,7 @@ import { LightShafts, SHAFT_TUNING, SHAFT_TUNING_V1, planShafts, shaftLook, type
 import { EyeAdaptation } from './adaptation.ts'
 import { LIGHT_LOOK } from './look.ts'
 import { atmosphereLook, mistLevel, sunBreak } from './atmosphere.ts'
+import { CAMERA_HEIGHT_M } from '../pbr/fog-plugin.ts'
 import { DEFAULT_HEIGHT_FALLOFF_M } from '../pbr/fog-plugin.ts'
 
 export type PostStage = 'fsr' | 'ssao' | 'ssr' | 'taa' | 'shafts' | 'adapt' | 'default'
@@ -465,6 +466,8 @@ export class RenderPost implements RenderPart {
   /** repairPrepass's tries in a row without the prepass coming back on (reset by every build). */
   private prepassRepairs = 0
   private ssrOn = false
+  /** Item 16: the shafts' haze share at the eye's height (1 at the usual camera height). */
+  private shaftAltitude = 1
   private exposure = 1
   private readonly lutUrl: string | null
   private readonly taaReprojection: boolean
@@ -938,7 +941,13 @@ export class RenderPost implements RenderPart {
       const env = this.scene.environmentTexture
       if (env && env.isCube && b.ssr.environmentTexture !== env) b.ssr.environmentTexture = env as CubeTexture
     }
-    if (b.shafts) this.updateShafts(b.shafts, sky)
+    if (b.shafts) {
+      // Item 16: high above the ground (flying) the air around the eye is clear: the shafts' haze thins with it.
+      const ty = (camera as { target?: { y: number } } | null)?.target?.y
+      const above = camera && ty !== undefined && Number.isFinite(ty) && this.fog.groundY !== null ? Math.max(0, camera.globalPosition.y - ty - CAMERA_HEIGHT_M) : 0
+      this.shaftAltitude = Math.exp(-above / Math.max(1, this.fog.heightFalloffM))
+      this.updateShafts(b.shafts, sky)
+    }
     if (b.adapt) b.adapt.setFrame(this.exposure, sky.sunElevationDeg, this.weather)
   }
 
@@ -951,7 +960,7 @@ export class RenderPost implements RenderPart {
   private updateShafts(shafts: LightShafts, sky: Readonly<SkyState>): void {
     shafts.glowOn = LIGHT_LOOK.lanternGlow
     const cal = (this.render.lighting as { calibration?: { sun: number } } | null)?.calibration
-    const fog = this.fog.active && this.fog.a.w > 0.5 ? this.fog.a.x : 0
+    const fog = this.fog.active && this.fog.a.w > 0.5 ? this.fog.a.x * this.shaftAltitude : 0
     const start = this.fog.a.z
     const k = sky.keyLight
     shafts.setFrame(shaftLook({
