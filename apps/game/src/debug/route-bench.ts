@@ -140,6 +140,45 @@ export function instrumentWorld(probe: FrameProbe, ctx: WorldFeatureContext): vo
   }
 }
 
+/**
+ * Draw-submission census (round 3, the batching question): the active meshes grouped by geometry + material. A group
+ * of plain meshes (no instances, no thin instances) drawn more than once is a candidate for instancing; the totals say
+ * how many draws instancing could save at most. Top 12 groups by count.
+ */
+export function drawCensus(scene: Scene): { active: number; instanced: number; thin: number; plain: number; dupGroups: number; dupDraws: number; top: [string, number][] } {
+  const active = scene.getActiveMeshes()
+  const groups = new Map<string, { n: number; name: string }>()
+  let instanced = 0
+  let thin = 0
+  let plain = 0
+  for (let i = 0; i < active.length; i++) {
+    const m = active.data[i] as AbstractMesh & { geometry?: { uniqueId: number } | null; hasThinInstances?: boolean; hasInstances?: boolean; sourceMesh?: unknown }
+    if (m.sourceMesh) {
+      instanced++
+      continue
+    }
+    if (m.hasThinInstances) {
+      thin++
+      continue
+    }
+    plain++
+    const g = m.geometry?.uniqueId
+    if (g === undefined) continue
+    const k = `${g}|${m.material?.uniqueId ?? -1}`
+    const e = groups.get(k)
+    if (e) e.n++
+    else groups.set(k, { n: 1, name: m.name.replace(/\d+/g, '#') })
+  }
+  let dupGroups = 0
+  let dupDraws = 0
+  for (const e of groups.values()) if (e.n > 1) {
+    dupGroups++
+    dupDraws += e.n - 1
+  }
+  const top = [...groups.values()].filter(e => e.n > 1).sort((a, b) => b.n - a.n).slice(0, 12).map(e => [e.name, e.n] as [string, number])
+  return { active: active.length, instanced, thin, plain, dupGroups, dupDraws, top }
+}
+
 export interface RouteOptions {
   spinDegS?: number
   walkSpinDegS?: number
@@ -160,6 +199,8 @@ export interface RouteResult {
   gpuMs: { p50: number; p95: number; max: number; samples: number } | null
   grass: unknown
   census: unknown
+  /** drawCensus at the plaza (before the walk) and in the fields (after it). */
+  draws: { plaza: ReturnType<typeof drawCensus>; fields: ReturnType<typeof drawCensus> } | null
   /** Pipelines made in the background during the route: in-play skips (a visible mesh waited), new meshes prewarmed, started. */
   warm: { skippedInPlay: number; prewarmed: number; started: number } | null
 }
@@ -219,6 +260,7 @@ export async function runRoute(
     spin = 0
     legs.push({ tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: 0, reached: true })
   }
+  const plazaDraws = drawCensus(scene)
   const pw = PipelineWarm.for(eng)
   const w0 = pw ? { skippedInPlay: pw.skippedInPlay, prewarmed: pw.prewarmed, started: pw.started } : null
   probe.start()
@@ -265,6 +307,7 @@ export async function runRoute(
     probe.tag = ''
   }
   const summary = probe.stop()
+  const fieldsDraws = drawCensus(scene)
   const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started } : null
   scene.onBeforeRenderObservable.remove(spinObs)
   eng.onEndFrameObservable.remove(gpuObs)
@@ -302,6 +345,7 @@ export async function runRoute(
     grass,
     census: bench.census(),
     warm,
+    draws: { plaza: plazaDraws, fields: fieldsDraws },
   }
 }
 
@@ -313,6 +357,7 @@ export function routeReport(r: RouteResult): string {
     `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.hops ? ` (${l.hops} hops)` : ''}`).join(', ')}`,
     `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
     `background pipelines: ${JSON.stringify(r.warm)}`,
+    `draw census: ${JSON.stringify(r.draws)}`,
     `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}; new pipelines ${JSON.stringify(p.pipelines)}`,
     'system | mean | p50 | p95 | max | in spikes (ms, frames)',
     ...p.systems.slice(0, 40).map(s => `${s.label} | ${s.meanMs} | ${s.p50} | ${s.p95} | ${s.max} | ${s.inSpikesMs} (${s.spikeFrames})`),
