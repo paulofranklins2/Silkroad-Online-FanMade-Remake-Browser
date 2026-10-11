@@ -22,6 +22,7 @@ import { WorldGraphics } from '../world/graphics.ts'
 import { intents } from '../world/intents.ts'
 import { HudMinimap } from '../world/jangan/minimap.ts'
 import { NameplateLayout } from '../world/nameplates.ts'
+import { PipelineWarm } from '../screens/pipelines.ts'
 import { FrameProbe, type ProbeSummary } from './frame-probe.ts'
 
 /**
@@ -159,6 +160,8 @@ export interface RouteResult {
   gpuMs: { p50: number; p95: number; max: number; samples: number } | null
   grass: unknown
   census: unknown
+  /** Pipelines made in the background during the route: in-play skips (a visible mesh waited), new meshes prewarmed, started. */
+  warm: { skippedInPlay: number; prewarmed: number; started: number } | null
 }
 
 /** The run (see the header). `bench` supplies the GM commands, the status and the uncapped measure for the grass arms. */
@@ -216,6 +219,8 @@ export async function runRoute(
     spin = 0
     legs.push({ tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: 0, reached: true })
   }
+  const pw = PipelineWarm.for(eng)
+  const w0 = pw ? { skippedInPlay: pw.skippedInPlay, prewarmed: pw.prewarmed, started: pw.started } : null
   probe.start()
   try {
     await spinLeg('spin-plaza')
@@ -260,6 +265,7 @@ export async function runRoute(
     probe.tag = ''
   }
   const summary = probe.stop()
+  const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started } : null
   scene.onBeforeRenderObservable.remove(spinObs)
   eng.onEndFrameObservable.remove(gpuObs)
   gi?.dispose()
@@ -295,6 +301,7 @@ export async function runRoute(
     gpuMs: gpu.length ? { p50: r2(qs(gpu, 0.5)), p95: r2(qs(gpu, 0.95)), max: r2(Math.max(...gpu)), samples: gpu.length } : null,
     grass,
     census: bench.census(),
+    warm,
   }
 }
 
@@ -305,6 +312,7 @@ export function routeReport(r: RouteResult): string {
     `route ${r.engine} ${r.preset}: ${p.frames} frames in ${p.seconds} s (${p.fps} fps); frame p50 ${p.frameMs.p50} p95 ${p.frameMs.p95} p99 ${p.frameMs.p99} max ${p.frameMs.max} ms; >33 ms: ${p.over33}, >50 ms: ${p.over50}; gpu p50 ${r.gpuMs?.p50 ?? '-'} p95 ${r.gpuMs?.p95 ?? '-'}`,
     `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.hops ? ` (${l.hops} hops)` : ''}`).join(', ')}`,
     `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
+    `background pipelines: ${JSON.stringify(r.warm)}`,
     `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}; new pipelines ${JSON.stringify(p.pipelines)}`,
     'system | mean | p50 | p95 | max | in spikes (ms, frames)',
     ...p.systems.slice(0, 40).map(s => `${s.label} | ${s.meanMs} | ${s.p50} | ${s.p95} | ${s.max} | ${s.inSpikesMs} (${s.spikeFrames})`),
