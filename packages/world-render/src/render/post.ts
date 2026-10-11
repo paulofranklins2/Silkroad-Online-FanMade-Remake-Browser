@@ -982,7 +982,7 @@ export class RenderPost implements RenderPart {
       // Item 16: high above the ground (flying) the air around the eye is clear: the shafts' haze thins with it.
       const ty = (camera as { target?: { y: number } } | null)?.target?.y
       const above = camera && ty !== undefined && Number.isFinite(ty) && this.fog.groundY !== null ? Math.max(0, camera.globalPosition.y - ty - CAMERA_HEIGHT_M) : 0
-      this.shaftAltitude = Math.exp(-above / Math.max(1, this.fog.heightFalloffM))
+      this.shaftAltitude = Math.exp(-above / 30)
       this.updateShafts(b.shafts, sky)
     }
     if (b.adapt) b.adapt.setFrame(this.exposure, sky.sunElevationDeg, this.weather)
@@ -997,7 +997,7 @@ export class RenderPost implements RenderPart {
   private updateShafts(shafts: LightShafts, sky: Readonly<SkyState>): void {
     shafts.glowOn = LIGHT_LOOK.lanternGlow
     const cal = (this.render.lighting as { calibration?: { sun: number } } | null)?.calibration
-    const fog = this.fog.active && this.fog.a.w > 0.5 ? this.fog.a.x * this.shaftAltitude : 0
+    const fog = this.fog.active && this.fog.a.w > 0.5 ? this.fog.a.x : 0
     const start = this.fog.a.z
     const k = sky.keyLight
     shafts.setFrame(shaftLook({
@@ -1009,6 +1009,7 @@ export class RenderPost implements RenderPart {
       weather: this.weather,
       fogDensity: fog,
       fogStartM: start,
+      airShare: this.shaftAltitude,
       sunBreak: sunBreak(sky.sunElevationDeg * Math.PI / 180, this.weather.rain, this.weather.cloud, 0),
     }, LIGHT_LOOK.atmosphere ? this.shaftTuning : SHAFT_TUNING_V1), sky)
   }

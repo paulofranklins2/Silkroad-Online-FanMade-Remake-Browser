@@ -212,6 +212,8 @@ export interface ShaftLookInput {
   fogStartM: number
   /** Item 16: the clouds' gap toward a low sun in rain (sky-system.ts sunBreak, 0..1): beams through the break. */
   sunBreak?: number
+  /** Item 16: the share of the hazy air around the eye (1 at the usual camera height, less from flying height). */
+  airShare?: number
 }
 
 export interface ShaftLook {
@@ -264,7 +266,7 @@ export function shaftLook(i: Readonly<ShaftLookInput>, t: Readonly<ShaftTuning> 
   const brk = clamp01(i.sunBreak ?? 0)
   const weather = (1 - 0.75 * smoothstep(0.55, 0.95, w.cloud) * (1 - 0.5 * brk)) * (1 - 0.85 * clamp01(w.rain) * (1 - 0.35 * brk)) * (1 + t.mistGain * mist + t.humidGain * humidity)
   const nearFog = Math.max(0, i.fogDensity) * clamp01(1 - Math.max(0, i.fogStartM) / 100)
-  const sigma = t.sigma * (1 + t.mistSigma * mist + t.humidSigma * humidity) + t.fogShare * nearFog
+  const sigma = (t.sigma * (1 + t.mistSigma * mist + t.humidSigma * humidity) + t.fogShare * nearFog) * clamp01(i.airShare ?? 1)
   const tint = hazeTint(i.fogColor)
   // Single scattering: E · σ ∫T·V dt · p(θ), p normalised to 4π (the composite's phase is 1 for isotropic).
   const k = (t.gain * sun * weather * Math.max(0, i.keyIntensity) * Math.max(0, i.sunScale)) / (4 * Math.PI)
