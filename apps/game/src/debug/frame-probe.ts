@@ -216,6 +216,9 @@ export class FrameProbe {
     this.wrap(scene, 'freeActiveMeshes', 'bjs.scene.freeActiveMeshes')
     this.wrap(scene, 'freeRenderingGroups', 'bjs.scene.freeRenderingGroups')
     this.wrap(eng, 'wipeCaches', 'bjs.engine.wipeCaches')
+    // the rAF callback around the frame: the engine's own begin / end work and anything else in the callback
+    this.wrap(eng, 'beginFrame', 'bjs.engine.beginFrame')
+    this.wrap(eng, '_renderLoop', 'bjs.engine.renderLoop')
     this.wrap(scene.renderingManager, 'restoreDispachedFlags', 'bjs.renderingManager.restoreDispachedFlags')
     const E = eng as unknown as Record<string, Observable<unknown>>
     for (const n of ['onBeginFrameObservable', 'onEndFrameObservable']) this.wrapObservable(E[n], 'obs.' + n.replace(/^on|Observable$/g, ''))
