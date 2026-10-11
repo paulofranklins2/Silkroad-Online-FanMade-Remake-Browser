@@ -122,6 +122,8 @@ describe('routing', () => {
       // layer 6: the Hunters and the Garrison Stockade
       'hunters',
       'jail',
+      // open-world PvP (docs/PVP.md)
+      'pvp',
       // the job system (docs/JOBS.md §9.2): the jobs core after the Hunters
       'jobs',
       'market',

@@ -127,7 +127,7 @@ describe('§5.1 rows', () => {
     expect(out.ssr).toBe('always')
     expect(out.shadows).toBeNull()
     expect(out.aa).toBe(base.aa)
-    expect(base.ssr).toBe('off') // §6.20 cut 4 (wave-9 final gate): High has no SSR; the row is untouched
+    expect(base.ssr).toBe('puddles') // lighting AAA pass (item 16): High has SSR while puddles exist; the row is untouched
   })
 })
 
