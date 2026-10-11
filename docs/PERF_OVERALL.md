@@ -185,6 +185,23 @@ The long freezes are gone; the price is more frames between 33 and 50 ms: the pr
 Goals not met: frames over 33 ms (216 under this load) and garbage under 20 MB/s (36). Runs:
 `work/tmp/routebench/{r4before,r4after}`.
 
+## Round 5: the prewarm's own cost, ShaderMaterial readiness
+
+Round 4's pair showed the prewarm costing more 33–50 ms frames than it saved. Changes:
+
+| # | Change | Files / switch |
+|---|---|---|
+| 1 | **The prewarm in idle time**: effect compiles (Babylon's shader processing, 5–20 ms, not splittable) run in `requestIdleCallback`, one per idle period and only with ≥ 8 ms of it left, never inside a frame; the per-frame work is only the held meshes. A held mesh (ghost-drawn out of view) is let go as soon as a frame's ghost draws start no pipeline for it (it was held up to 8 frames), at most 16 at once. Pipelines stay `createRenderPipelineAsync` (Dawn's worker threads) | screens/pipelines.ts, `PERF.prewarmNew` |
+| 2 | **ShaderMaterial readiness from a signature**: Babylon rebuilds and joins the define list on every `isReady` of every ShaderMaterial draw; the cache keeps, per draw wrapper and mesh, what that call reads (instances, thin instances, vertex colour, skeleton and bones, baked VAT, alpha test, fog, log depth, the scene's clip planes, the material's defines and attributes, the effect it validated) and answers `true` while all of it is unchanged and the effect and textures are ready; morph targets, vertex pulling, custom name resolvers and multiview go to Babylon | three/shader-ready-cache.ts (+ test), `PERF.shaderReadyCache` |
+| 4 | **Hidden meshes compiled without being shown**: the idle prewarm calls `isReady(true)` on disabled / invisible meshes too (their material and shadow depth effects for their mesh state), without enabling them; their pipelines then follow at the first draw in the background | screens/pipelines.ts |
+| 3 | The last despawn: the probe now times a mesh dispose's parts (active / rendering lists, caches, submeshes, `Node.dispose` with its dispose observers) | debug/frame-probe.ts, route-bench.ts |
+
+The bench also stops (and closes its Chrome) below 900 MB free RAM: the shared PC crashed twice mid-bench.
+
+**Measurement pending**: the before / after pair (switches off: `--query perfoff=pipelinesInPlay,prewarmNew,effectsPersistent,shaderReadyCache`)
+needs < 20 % CPU, ≥ 6 GB free and no other helper's bench running; every attempt so far was stopped by the memory guard
+when other benches started (runner: `work/tmp/routebench-r5.sh`).
+
 ## Plan (next)
 
 0. **Prewarm cost** (the 33–50 ms band): compile at most one new effect per frame (an effect compile is the unit, not a
