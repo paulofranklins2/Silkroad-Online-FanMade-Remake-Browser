@@ -152,7 +152,45 @@ spike over 100 ms in those runs is a despawn (66–76 ms) or a frame whose JS to
 pair is still owed (`pnpm charbench --route --alloc --bots 8 --configs webgpu-medium`, one config per invocation,
 ≥ 4 GB free RAM). Runs: `work/tmp/routebench/{r3c,r3d,r3e,r3f}`.
 
+## Round 4 (same day): despawn, hidden meshes, define checks, grass bake garbage
+
+| # | Finding | Done | Files |
+|---|---|---|---|
+| 1 | Despawn: besides the lists, most of the remaining time was `releaseSubMeshes` (205 ms once under load): each submesh's draw wrapper released its effect, the effect its pipelines | an actor's meshes leave every light's include / exclude list and shadow render list in one in-place pass per list (a list it empties still notifies, as Babylon's splice would); with the persistent effects (round 3) the release no longer tears effects down. Despawn p95 **22.4 → 3.7 ms** in the pair below; one 52–57 ms despawn per route remains (`mesh.dispose` 40 ms in it) | three/models.ts `dropFromLightLists` |
+| 2 | The in-play skips are the siege stockade (loaded after the warm-up, often already in view, `siege/stockade.ts`), the town folk's horse and parts, the licensed bodies' LODs | the hidden-mesh queue (round 3) stays; **not reached**: these meshes appear in view the frame they are made or shown, and a disabled mesh is never evaluated (the world's own active-mesh candidates list only enabled ones), so no ghost draw can warm it before. The skip is their first 1–3 frames (they appear a little later, nothing stalls) | – |
+| 3 | "A material re-checked every frame": the bench counts PBR readiness checks with dirty defines: only ≈ 270 over the whole route (the Mangnyang parts, the crowd pages, the licensed bodies) – not it. The garbage is Babylon's `ShaderMaterial.isReady`, which builds its define list and joins it on every call, for every ShaderMaterial draw, every frame (grass, sky, ocean, terrain parts) | **not changed**: freezing those materials or caching the define string is safe only per material (defines follow mesh state: bones, instances, fog, clip planes) | route-bench.ts `dirtyLog` |
+| 4 | Grass bake garbage | the edge warp's octaves read by index (its destructuring's iterators), the nav pick's distance inline instead of a closure per texel (the bake's occupancy test) | grass/bake.ts, nav/src/world.ts |
+
+### Before / after (round 4, the switches off vs on, one build)
+
+WebGPU Medium, 8 bots, the route. Both runs started on a quiet PC (< 20 % CPU, ≥ 8 GB free) but other helpers' work
+pushed both to 65–70 % mean machine CPU during the run (matched). "Before" = `--query perfoff=pipelinesInPlay,prewarmNew,effectsPersistent`
+(rounds 1–3's pipeline and effect work off; the other fixes have no switch).
+
+| | before (switches off) | after (on) |
+|---|---|---|
+| frames > 250 ms | 3 | **0** |
+| frames 100–250 ms | 14 | **4** |
+| frames 50–100 ms | 10 | 19 |
+| frames 33–50 ms | 57 | 193 |
+| frame p99 / max | 63 / 872 ms | **51 / 159 ms** |
+| pipelines made at a draw | 44 | **0** |
+| stalls (> 100 ms, < 50 ms JS) | 15 | **4** |
+| despawn p95 / max | 22.4 / 64 ms | **3.7** / 57 ms |
+| CPU per frame p50 / p95 | 16.5 / 27.3 ms | 12.0 / 36.0 ms |
+| garbage | 32.1 MB/s | 36.4 MB/s |
+
+The long freezes are gone; the price is more frames between 33 and 50 ms: the prewarm's effect compiles (one
+`isReady(true)` can take 15–19 ms despite the 2 ms budget: the budget is checked between meshes) and its ghost draws.
+Goals not met: frames over 33 ms (216 under this load) and garbage under 20 MB/s (36). Runs:
+`work/tmp/routebench/{r4before,r4after}`.
+
 ## Plan (next)
+
+0. **Prewarm cost** (the 33–50 ms band): compile at most one new effect per frame (an effect compile is the unit, not a
+   mesh), and skip the ghost draws for meshes whose effect and pipelines another mesh already made.
+0b. **ShaderMaterial define strings** (≈ 7 % of the garbage): cache `isReady` per material and mesh while nothing it
+   reads changed (a version counter set by the code that changes their defines), or freeze the static ones.
 
 1. **Despawn** (50–70 ms under load): remove an actor's meshes from the lights' lists and the shadow render lists in
    one pass before its dispose (each mesh's dispose then finds nothing to splice), or make the disposal asynchronous
