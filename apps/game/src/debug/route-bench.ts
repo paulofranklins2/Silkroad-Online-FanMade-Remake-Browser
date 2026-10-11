@@ -319,8 +319,7 @@ export async function runRoute(
   const newEffects = fresh.length
   const byShader = new Map<string, number>()
   for (const k of fresh) {
-    const n = k.split(/[+@
-]/)[0]!.slice(0, 40)
+    const n = k.split(/[+@\n]/)[0]!.slice(0, 40)
     byShader.set(n, (byShader.get(n) ?? 0) + 1)
   }
   const newEffectsBy = [...byShader].sort((a, b) => b[1] - a[1]).slice(0, 15)
