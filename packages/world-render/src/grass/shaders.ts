@@ -444,8 +444,8 @@ const GRASS_BODY_WGSL = /* wgsl */ `
   let dry = grDry(rxz);
   tip = mix(tip, vec3f(0.70, 0.62, 0.36) * (0.9 + 0.2 * r4), dry * (0.45 + 0.4 * cj));
   base = mix(base, base * vec3f(1.05, 0.98, 0.78), dry * 0.6);
-  if (r4 > 0.972) {
-    tip = vec3f(0.64, 0.56, 0.31);
+  if (r4 > 0.985) {
+    tip = vec3f(0.58, 0.55, 0.34);
     base = vec3f(0.36, 0.32, 0.16);
   }
   let gw = uniforms.grGust;
@@ -460,7 +460,7 @@ const GRASS_BODY_WGSL = /* wgsl */ `
     let H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry) * (1.0 - 0.3 * fa.g)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * uniforms.grLod1.w;
     let grPx = distance(uniforms.scCamera.xyz, root) * uniforms.grView.x;
-    let broad = select(1.0, select(0.6, 1.7, cj > 0.8), cj > 0.8 || cj < 0.3);
+    let broad = select(1.0, select(0.6, 1.45, cj > 0.8), cj > 0.8 || cj < 0.3);
     let W = max(uniforms.grStyle.x * (0.7 + 0.6 * r4) * broad * (1.0 - 0.45 * seed) * comp, grPx * uniforms.grView.y * ${MID});
     let fdir = normalize(mix(vec2f(cos(yaw), sin(yaw)), toCam, uniforms.grStyle.y) + vec2f(0.0001));
     let sd = vec2f(-fdir.y, fdir.x);
@@ -480,7 +480,7 @@ const GRASS_BODY_WGSL = /* wgsl */ `
       let gk = (1.0 - smoothstep(0.2, gq.w, gd)) * bt * bt * H * 0.9;
       p = p + vec3f(ga.x, 0.0, ga.y) / max(gd, 0.001) * gk - vec3f(0.0, gk * 0.5, 0.0);
     }
-    tip = mix(tip, vec3f(0.74, 0.64, 0.42), seed * 0.8);
+    tip = mix(tip, vec3f(0.66, 0.62, 0.42), seed * 0.6);
     let sheen = gust * 0.3 * bt;
     vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3f(sheen * 0.06);
     vertexOutputs.vShade = mix(0.64, 1.0, pow(bt, 0.5)) * (1.0 - 0.13 * max(side, 0.0));
@@ -509,7 +509,7 @@ const GRASS_BODY_WGSL = /* wgsl */ `
         R = mix(0.026, 0.036, vertexInputs.bladeB.z);
         cup = 0.75;
       }
-      R = R * fl;
+      R = R * fl * 1.25;
       let ha = yaw * 1.7;
       let hx = side * cos(ha) - bt * sin(ha);
       let hz = side * sin(ha) + bt * cos(ha);
@@ -588,8 +588,8 @@ const GRASS_BODY_GLSL = /* glsl */ `
   float dry = grDry(rxz);
   tip = mix(tip, vec3(0.70, 0.62, 0.36) * (0.9 + 0.2 * r4), dry * (0.45 + 0.4 * cj));
   base = mix(base, base * vec3(1.05, 0.98, 0.78), dry * 0.6);
-  if (r4 > 0.972) {
-    tip = vec3(0.64, 0.56, 0.31);
+  if (r4 > 0.985) {
+    tip = vec3(0.58, 0.55, 0.34);
     base = vec3(0.36, 0.32, 0.16);
   }
   vec4 gw = grGust;
@@ -604,7 +604,7 @@ const GRASS_BODY_GLSL = /* glsl */ `
     float H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry) * (1.0 - 0.3 * fa.g)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * grLod1.w;
     float grPx = distance(scCamera.xyz, root) * grView.x;
-    float broad = cj > 0.8 ? 1.7 : cj < 0.3 ? 0.6 : 1.0;
+    float broad = cj > 0.8 ? 1.45 : cj < 0.3 ? 0.6 : 1.0;
     float W = max(grStyle.x * (0.7 + 0.6 * r4) * broad * (1.0 - 0.45 * seed) * comp, grPx * grView.y * ${MID});
     vec2 fdir = normalize(mix(vec2(cos(yaw), sin(yaw)), toCam, grStyle.y) + vec2(0.0001));
     vec2 sd = vec2(-fdir.y, fdir.x);
@@ -624,7 +624,7 @@ const GRASS_BODY_GLSL = /* glsl */ `
       float gk = (1.0 - smoothstep(0.2, gq.w, gd)) * bt * bt * H * 0.9;
       p += vec3(ga.x, 0.0, ga.y) / max(gd, 0.001) * gk - vec3(0.0, gk * 0.5, 0.0);
     }
-    tip = mix(tip, vec3(0.74, 0.64, 0.42), seed * 0.8);
+    tip = mix(tip, vec3(0.66, 0.62, 0.42), seed * 0.6);
     float sheen = gust * 0.3 * bt;
     vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3(sheen * 0.06);
     vShade = mix(0.64, 1.0, pow(bt, 0.5)) * (1.0 - 0.13 * max(side, 0.0));
@@ -653,7 +653,7 @@ const GRASS_BODY_GLSL = /* glsl */ `
         R = mix(0.026, 0.036, bladeB.z);
         cup = 0.75;
       }
-      R *= fl;
+      R *= fl * 1.25;
       float ha = yaw * 1.7;
       float hx = side * cos(ha) - bt * sin(ha);
       float hz = side * sin(ha) + bt * cos(ha);
