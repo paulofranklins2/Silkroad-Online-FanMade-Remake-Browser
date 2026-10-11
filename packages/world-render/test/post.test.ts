@@ -96,7 +96,7 @@ describe('planPost: preset → pipeline list, in order', () => {
     const med = planPost('pbr', RENDER_PRESETS.medium, GPU)
     expect(med.stages).toEqual(['shafts', 'adapt', 'default'])
     expect(med.shafts).toMatchObject({ level: 'low', mode: 'hybrid', ratio: 0.25 })
-    expect([med.fxaa, med.msaa, med.sharpen, med.bloom, med.toneMap, med.lutGrade, med.prepass]).toEqual([true, 1, false, 0, 'neutral', true, false])
+    expect([med.fxaa, med.msaa, med.sharpen, med.bloom, med.toneMap, med.lutGrade, med.prepass]).toEqual([true, 1, false, 0.5, 'neutral', true, false]) // item 16: the subtle bloom by default
     const high = planPost('pbr', RENDER_PRESETS.high, GPU)
     expect(high.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default']) // item 16: SSR on High while puddles
     expect(high.shafts).toMatchObject({ level: 'high', mode: 'march', ratio: 0.5 })
@@ -201,7 +201,7 @@ describe('RenderPost on a scene (NullEngine)', () => {
     expect(post.stages).toEqual(['shafts', 'adapt', 'default'])
     const dp = post.pipeline!
     expect(dp.fxaaEnabled).toBe(true)
-    expect(dp.bloomEnabled).toBe(false)
+    expect(dp.bloomEnabled).toBe(true) // NullEngine: Babylon's bloom (WebGPU builds the mip-chain bloom, render/bloom.ts)
     expect(dp.imageProcessing.imageProcessingConfiguration).toBe(post.imageProcessing)
     expect(post.imageProcessing.toneMappingEnabled).toBe(true)
     expect(post.imageProcessing.toneMappingType).toBe(ImageProcessingConfiguration.TONEMAPPING_KHR_PBR_NEUTRAL)
@@ -354,9 +354,10 @@ describe('wave 12 defaults: the sun shafts replace the gate-2 VLS', () => {
   })
 })
 
-describe('bloom (Options → Bloom: off by default, subtle, strong)', () => {
-  it('withBloom: off is every preset as the table has it; subtle and strong replace only the bloom keys; Low never changes', () => {
-    for (const p of PRESETS) expect(withBloom(RENDER_PRESETS[p], 'off'), p).toBe(RENDER_PRESETS[p])
+describe('bloom (Options → Bloom: off, subtle by default since item 16, strong)', () => {
+  it('withBloom: subtle is every preset as the table has it; off and strong replace only the bloom keys; Low never changes', () => {
+    for (const p of PRESETS) expect(withBloom(RENDER_PRESETS[p], 'subtle'), p).toBe(RENDER_PRESETS[p])
+    for (const p of ['medium', 'high', 'ultra'] as const) expect(withBloom(RENDER_PRESETS[p], 'off').bloom, p).toBe(0)
     for (const level of ['off', 'subtle', 'strong'] as const) expect(withBloom(RENDER_PRESETS.low, level), level).toBe(RENDER_PRESETS.low)
     // A PBR block without the HDR target has no post stack to bloom in.
     const noHdr = { ...RENDER_PRESETS.medium, hdr: false }
@@ -366,7 +367,8 @@ describe('bloom (Options → Bloom: off by default, subtle, strong)', () => {
     expect(withBloom(subtle, 'subtle')).toBe(subtle)
     // Back to strong drops the subtle threshold and weight (the shipped rule and weight again).
     const strong = withBloom(subtle, 'strong')
-    expect(strong).toEqual({ ...RENDER_PRESETS.high, bloom: 1 })
+    const { bloomThreshold: _t, bloomWeight: _w, ...highBase } = RENDER_PRESETS.high
+    expect(strong).toEqual({ ...highBase, bloom: 1 })
     expect('bloomThreshold' in strong || 'bloomWeight' in strong).toBe(false)
   })
 
@@ -383,8 +385,9 @@ describe('bloom (Options → Bloom: off by default, subtle, strong)', () => {
     expect(legacy(100)).toBeGreaterThan(legacy(11.2))
   })
 
-  it('plans bloom from the block: off by default, subtle at half resolution with its threshold, strong as the release shipped High', () => {
-    const off = planPost('pbr', RENDER_PRESETS.high, GPU)
+  it('plans bloom from the block: subtle by default at half resolution with its threshold, off, strong as the release shipped High', () => {
+    expect([RENDER_PRESETS.high.bloom, RENDER_PRESETS.high.bloomThreshold]).toEqual([0.5, 4])
+    const off = planPost('pbr', withBloom(RENDER_PRESETS.high, 'off'), GPU)
     expect([off.bloom, off.bloomThreshold, off.bloomWeight]).toEqual([0, null, 0.15])
     const subtle = planPost('pbr', withBloom(RENDER_PRESETS.medium, 'subtle'), GPU)
     expect([subtle.bloom, subtle.bloomThreshold, subtle.bloomWeight]).toEqual([0.5, BLOOM_LOOKS.subtle.bloomThreshold, BLOOM_LOOKS.subtle.bloomWeight])
@@ -401,6 +404,7 @@ describe('bloom (Options → Bloom: off by default, subtle, strong)', () => {
     const post = installRenderPost(render)
     render.attachCamera(camera)
     post.exposureTrim = 1
+    render.setQuality(withBloom(RENDER_PRESETS.medium, 'off'))
     render.update(camera, sky({ exposure: 10 }))
     expect(post.pipeline!.bloomEnabled).toBe(false)
 
@@ -419,7 +423,7 @@ describe('bloom (Options → Bloom: off by default, subtle, strong)', () => {
     expect([strong.bloomEnabled, strong.bloomScale, strong.bloomWeight]).toEqual([true, 1, 0.15])
     expect(strong.bloomThreshold).toBeCloseTo(0.9 / 40, 12)
 
-    render.setQuality(RENDER_PRESETS.medium)
+    render.setQuality(withBloom(RENDER_PRESETS.medium, 'off'))
     expect(post.pipeline!.bloomEnabled).toBe(false)
     expect(post.stages).toEqual(['shafts', 'adapt', 'default'])
   })

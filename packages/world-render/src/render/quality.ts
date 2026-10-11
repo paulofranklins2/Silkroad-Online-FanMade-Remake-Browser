@@ -160,7 +160,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     hdr: false,
     toneMap: 'none',
     lutGrade: false,
-    bloom: 0,
+    bloom: 0, bloomThreshold: 4, bloomWeight: 0.1, // (no HDR stack on Low: the keys only keep every block's shape)
     shadows: null,
     ibl: null,
     // The splat is part of the Classic night look (NL): no point lights, so light counts stay as today (D12).
@@ -189,7 +189,8 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     hdr: true,
     toneMap: 'neutral',
     lutGrade: true,
-    bloom: 0, // Options → Bloom (BLOOM_LOOKS; the release shipped 0.5)
+    // Item 16: the subtle mip-chain bloom is the default (Options → Bloom 'subtle' = this block unchanged)
+    bloom: 0.5, bloomThreshold: 4, bloomWeight: 0.1,
     shadows: { cascades: 2, mapSize: 1024, distanceM: 60, foliageM: 0, terrain: false, props: false, soft: 0 },
     ibl: { cubeSize: 32, refreshS: 10 },
     // D29 (W9F D3): Medium is a PBR preset now; its cluster/pool lights the PBR terrain, so no terrain splat on top.
@@ -220,7 +221,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     hdr: true,
     toneMap: 'neutral',
     lutGrade: true,
-    bloom: 0, // Options → Bloom (BLOOM_LOOKS; the release shipped 1)
+    bloom: 0.5, bloomThreshold: 4, bloomWeight: 0.1, // item 16: Options' 'subtle' (the default)
     shadows: { cascades: 3, mapSize: 2048, distanceM: 150, foliageM: 60, terrain: true, props: false, soft: 0 },
     ibl: { cubeSize: 64, refreshS: 5 },
     nightLights: { cluster: 32, poolFallback: 2, terrainSplat: false, grassSplat: true },
@@ -251,7 +252,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     hdr: true,
     toneMap: 'neutral',
     lutGrade: true,
-    bloom: 0, // Options → Bloom (BLOOM_LOOKS; the release shipped 1)
+    bloom: 0.5, bloomThreshold: 4, bloomWeight: 0.1, // item 16: Options' 'subtle' (the default)
     // Item 16: PCSS contact-hardening shadows on Ultra (float32 shadow map; LIGHTING §8)
     shadows: { cascades: 4, mapSize: 2048, distanceM: 250, foliageM: 60, terrain: true, props: true, soft: 0.012 },
     ibl: { cubeSize: 64, refreshS: 2 },

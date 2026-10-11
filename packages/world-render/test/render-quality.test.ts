@@ -60,8 +60,8 @@ describe('RENDER_PRESETS (the §5.1 render rows)', () => {
   it('Medium, High and Ultra follow the §5.1 table', () => {
     const { medium: m, high: h, ultra: u } = RENDER_PRESETS
     for (const p of [m, h, u]) expect([p.path, p.hdr, p.toneMap, p.lutGrade, p.water, p.fog]).toEqual(['pbr', true, 'neutral', true, 'pbr', 'height'])
-    // Bloom is off on every preset (Options → Bloom brings it back, BLOOM_LOOKS; the release shipped 0.5 / 1 / 1).
-    for (const p of [m, h, u]) expect([p.bloom, p.bloomThreshold, p.bloomWeight]).toEqual([0, undefined, undefined])
+    // Item 16: the subtle bloom on every PBR preset (= Options → Bloom 'subtle', the default; BLOOM_LOOKS).
+    for (const p of [m, h, u]) expect([p.bloom, p.bloomThreshold, p.bloomWeight]).toEqual([0.5, 4, 0.1])
     expect(m.shadows).toMatchObject({ cascades: 2, mapSize: 1024, distanceM: 60, foliageM: 0, terrain: false })
     expect(h.shadows).toMatchObject({ cascades: 3, mapSize: 2048, distanceM: 150, foliageM: 60, terrain: true, props: false })
     expect(u.shadows).toMatchObject({ cascades: 4, mapSize: 2048, distanceM: 250, props: true })

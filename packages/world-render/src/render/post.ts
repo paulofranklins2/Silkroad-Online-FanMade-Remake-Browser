@@ -73,6 +73,7 @@ import { CLEAR_RENDER_WEATHER, type RenderWeather } from './weather.ts'
 import { LightShafts, SHAFT_TUNING, SHAFT_TUNING_V1, planShafts, shaftLook, type ShaftMode, type ShaftPlan, type ShaftShadowSource, type ShaftTuning } from './volumetrics/shafts.ts'
 import { EyeAdaptation } from './adaptation.ts'
 import { LIGHT_LOOK } from './look.ts'
+import { MipBloom } from './bloom.ts'
 import { atmosphereLook, atmosphereWeights, mistLevel, sunBreak } from './atmosphere.ts'
 import { CAMERA_HEIGHT_M } from '../pbr/fog-plugin.ts'
 import { DEFAULT_HEIGHT_FALLOFF_M } from '../pbr/fog-plugin.ts'
@@ -215,6 +216,8 @@ export type TemporalOverride = 'none' | 'msaa4'
 
 /** The display-luminance threshold the presets shipped with (see bloomCutoff). */
 export const LEGACY_BLOOM_THRESHOLD = 0.9
+/** Item 16: the mip bloom's threshold when the block names none ('strong'): a little above sunlit white. */
+export const MIP_BLOOM_THRESHOLD = 3
 
 /**
  * The DefaultRenderingPipeline bloomThreshold for a plan's threshold at this exposure. Babylon 9.28's highlight pass
@@ -282,6 +285,8 @@ interface Built {
   dp: DefaultRenderingPipeline
   shafts: LightShafts | null
   adapt: EyeAdaptation | null
+  /** Item 16: the mip-chain bloom (WebGPU; null: Babylon's bloom or none). */
+  bloom?: MipBloom | null
   stages: PostStage[]
 }
 
@@ -783,13 +788,27 @@ export class RenderPost implements RenderPart {
       })
     }
 
+    // Item 16: the mip-chain bloom (render/bloom.ts) on WebGPU, after the adaptation, before the default pipeline.
+    let bloom: MipBloom | null = null
+    if (p.bloom > 0 && engine.isWebGPU && engine.getCaps().textureHalfFloatRender) {
+      // (part of the 'default' stage: no stage of its own, the stage lists stay the §5.1 rows)
+      try {
+        bloom = new MipBloom(scene, camera, {
+          threshold: p.bloomThreshold ?? MIP_BLOOM_THRESHOLD, weight: p.bloomWeight, samples: !shafts && !adapt && sceneFirst('adapt') ? p.msaa : 1,
+        })
+      } catch (err) {
+        console.warn('[post] mip bloom not built (Babylon bloom instead):', err)
+      }
+      if (bloom) bloom.exposure = this.exposure
+    }
+
     // TAA unsupported on this device: FXAA instead, and no sharpen.
     const noTaa = p.aa === 'taa' && !taa
     const dp = new DefaultRenderingPipeline('sroPost', true, scene, [camera], false)
     dp.samples = sceneFirst('adapt') ? p.msaa : 1
     dp.fxaaEnabled = p.fxaa || noTaa
-    dp.bloomEnabled = p.bloom > 0
-    if (p.bloom > 0) {
+    dp.bloomEnabled = p.bloom > 0 && !bloom
+    if (dp.bloomEnabled) {
       dp.bloomScale = p.bloom
       dp.bloomKernel = 64
       dp.bloomWeight = p.bloomWeight
@@ -810,7 +829,7 @@ export class RenderPost implements RenderPart {
 
     // The shafts were pushed before 'default': keep the fixed order whatever was built.
     stages.sort((a, b) => POST_STAGE_ORDER.indexOf(a) - POST_STAGE_ORDER.indexOf(b))
-    return { camera, fsr, ssao, ssr, taa, dp, shafts, adapt, stages }
+    return { camera, fsr, ssao, ssr, taa, dp, shafts, adapt, bloom, stages }
   }
 
   /** The sun's CSM the shafts march through (the shadow part's generator; null before it exists). */
@@ -833,6 +852,7 @@ export class RenderPost implements RenderPart {
     if (!b) return
     b.dp.dispose()
     b.adapt?.dispose()
+    b.bloom?.dispose()
     b.shafts?.dispose()
     b.taa?.dispose()
     b.ssr?.dispose(false)
@@ -932,7 +952,8 @@ export class RenderPost implements RenderPart {
     }
     if (moved) {
       this.imageProcessing.exposure = this.exposure
-      if (this.plan.bloom > 0) b.dp.bloomThreshold = bloomCutoff(this.plan.bloomThreshold, this.exposure)
+      if (this.plan.bloom > 0 && b.dp.bloomEnabled) b.dp.bloomThreshold = bloomCutoff(this.plan.bloomThreshold, this.exposure)
+      if (b.bloom) b.bloom.exposure = this.exposure
       refreshOverlays(this.scene, this.exposure)
     }
     if (this.grade) this.grade.setLegacy(!LIGHT_LOOK.cinematicGrade)

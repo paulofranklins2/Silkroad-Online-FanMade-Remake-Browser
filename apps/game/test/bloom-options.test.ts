@@ -32,21 +32,21 @@ afterEach(() => {
 const settingsWith = (graphics: Partial<Settings['graphics']>): Settings => normalizeSettings({ ...defaultSettings(), graphics: { ...defaultSettings().graphics, ...graphics } })
 
 describe('the bloom setting', () => {
-  it('is off for a new profile and for every save from before it existed; unknown values fall back to off', () => {
-    expect(defaultSettings().graphics.bloom).toBe('off')
+  it('is subtle for a new profile and for every save without the key (item 16); unknown values fall back to subtle', () => {
+    expect(defaultSettings().graphics.bloom).toBe('subtle')
     expect(BLOOM_SETTINGS).toEqual(['off', 'subtle', 'strong'])
     // A wave-9 release save (High, modern, no bloom key) and a pre-wave-9 one.
-    expect(normalizeSettings({ v: 1, graphics: { preset: 'high', modern: true, releaseMigrated: true } }).graphics.bloom).toBe('off')
-    expect(normalizeSettings({ v: 1, graphics: { preset: 'medium' } }).graphics.bloom).toBe('off')
-    expect(normalizeSettings({ v: 1, graphics: { bloom: 'blinding' } }).graphics.bloom).toBe('off')
+    expect(normalizeSettings({ v: 1, graphics: { preset: 'high', modern: true, releaseMigrated: true } }).graphics.bloom).toBe('subtle')
+    expect(normalizeSettings({ v: 1, graphics: { preset: 'medium' } }).graphics.bloom).toBe('subtle')
+    expect(normalizeSettings({ v: 1, graphics: { bloom: 'blinding' } }).graphics.bloom).toBe('subtle')
     for (const b of BLOOM_SETTINGS) expect(normalizeSettings({ v: 1, graphics: { bloom: b } }).graphics.bloom).toBe(b)
   })
 
-  it('off leaves every PBR preset block as the table has it (bloom 0 on every preset)', () => {
+  it('subtle (the default) leaves every PBR preset block as the table has it (the subtle bloom on every preset)', () => {
     for (const p of ['medium', 'high', 'ultra'] as const) {
       const e = effectiveGraphics(settingsWith({ preset: p }), { rollout: 'on' })
       expect(e.renderQuality, p).toBe(RENDER_PRESETS[p])
-      expect(e.renderQuality.bloom, p).toBe(0)
+      expect(e.renderQuality.bloom, p).toBe(0.5)
     }
   })
 
@@ -138,14 +138,16 @@ describe('bloom applies live', () => {
       scene.dispose()
       engine.dispose()
     })
-    expect(renders.at(-1)).toBe(RENDER_PRESETS.medium)
+    expect(renders.at(-1)).toBe(RENDER_PRESETS.medium) // subtle: the default
+    store.set({ graphics: { bloom: 'off' } })
+    expect(renders.at(-1)).toMatchObject({ bloom: 0 })
     store.set({ graphics: { bloom: 'subtle' } })
     expect(renders.at(-1)).toMatchObject({ bloom: 0.5, bloomThreshold: BLOOM_LOOKS.subtle.bloomThreshold })
     store.set({ graphics: { bloom: 'strong' } })
     expect(renders.at(-1)).toMatchObject({ bloom: 1 })
     store.set({ graphics: { bloom: 'off' } })
-    expect(renders.at(-1)).toBe(RENDER_PRESETS.medium)
-    expect(renders).toHaveLength(4)
+    expect(renders.at(-1)).toMatchObject({ bloom: 0 })
+    expect(renders).toHaveLength(5)
     expect(w.setRenderMode).not.toHaveBeenCalled()
     expect(say).not.toHaveBeenCalled() // no "applies the next time you enter the world"
   })

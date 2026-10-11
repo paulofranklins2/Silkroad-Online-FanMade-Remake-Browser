@@ -309,7 +309,7 @@ export function defaultSettings(): Settings {
       sky: 'modern',
       weather: 'auto',
       advanced: { shadows: 'auto', ao: 'auto', reflections: 'auto', aa: 'auto', toneMap: 'neutral', lightShafts: 'auto', batching: 'on' },
-      bloom: 'off',
+      bloom: 'subtle', // item 16: the mip-chain bloom (lamps, the sun, spells glow; threshold 4 keeps white cloth and stone clean)
       firstRun: true,
       modern: false,
       recommended: null,
