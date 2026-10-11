@@ -559,8 +559,8 @@ describe.skipIf(!HAVE_FIELDS)('10. the fields (WORLD_EXPORT=jangan-fields)', () 
   beforeAll(() => h.start(), 120_000)
   afterAll(() => h.close())
 
-  it('loads 307 regions, at least 690 nests and more than 5,500 monsters (unreachable nests logged once)', () => {
-    expect(h.logs.some((l) => /^navigation: .*jangan-fields.*nav\.bin \(307 regions/.test(l)), h.logs.join('\n')).toBe(true)
+  it('loads the nav regions (307, 340 with the beach regions of docs/COAST.md §9.5), at least 690 nests and more than 5,500 monsters (unreachable nests logged once)', () => {
+    expect(h.logs.some((l) => /^navigation: .*jangan-fields.*nav\.bin \((307|340) regions/.test(l)), h.logs.join('\n')).toBe(true)
     const m = /world content: (\d+) NPCs, (\d+) nests \(\d+ skipped\), (\d+) monsters spawned/.exec(h.logs.find((l) => l.startsWith('world content:')) ?? '')
     expect(m).not.toBeNull()
     // wave 11: UNIQUES=on (the default) gives Tiger Girl's 11 camps to the uniques module (Spawner refusal): 690 - 11
