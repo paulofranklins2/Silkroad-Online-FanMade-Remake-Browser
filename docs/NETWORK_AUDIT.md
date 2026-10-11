@@ -27,11 +27,11 @@ What the audit found and fixed is mostly in the "100 → 500 players" and "bad n
 | N8 | Medium | Disconnects were not logged with a reason (only "left as X") | **Fixed**: one `disconnect:` line per socket with who, state and reason; counted by reason |
 | C1 | Medium | Client snapped to every server `stop` / redirect (visible pops of ~0.1–0.5 m at normal RTT) | **Fixed**: corrections glide out (τ 80 ms; > 4 m still snaps) |
 | M1 | — | No way to measure bandwidth, message mix, tick percentiles | **Added**: `NetStats`, `GET /netstats` (NET_STATS=1, loopback only), `pnpm netload` |
-| R1 | Medium | No per-viewer cap on visible players: in one crowded town every client receives every player (500 → 12.5 kB/s and 130 msg/s per client after the fixes) | Remains — recommendation below |
+| R1 | Medium | No per-viewer cap on visible players: in one crowded town every client receives every player (500 → 12.5 kB/s and 130 msg/s per client after the fixes) | **Fixed** (decision 2026-10-11): crowd cap, §2 |
 | R2 | Low | JSON text frames, no binary encoding | Remains — measured not worth it yet (below) |
 | R3 | Low | No global connection-rate limit per IP (only 16 concurrent sockets per IP, 5 s hello timeout) | Remains |
 | R4 | Low | `broadcastAbout` scans all players per event (O(N) per event, O(N²) per second) | Remains: < 1 % CPU at 500 |
-| R5 | Medium | Local chat is world-wide (a documented choice, UX_GAPS C6): each line goes to every player; at 500 players it is the largest outbound item when spread out, and an N² amplifier (1 line/s each) | Remains — range-limit it (view range) once the population grows |
+| R5 | Medium | Local chat was world-wide (UX_GAPS C6): each line went to every player; at 500 players the largest outbound item when spread out, and an N² amplifier (1 line/s each) | **Fixed** (decision 2026-10-11): local chat reaches players within view range |
 
 ## 1. Server authority
 
@@ -49,6 +49,19 @@ move/stop, not per tick, so per-entity update rate scaling by distance has nothi
 each viewer ~1.4 messages per click, whatever the tick rate. AOI: uniform grid (`viewRange` 120 m cells), spawn inside
 120 m, despawn beyond 130 m. Snapshot on enter (`worldEnter.entities`), deltas after (`spawn` / `despawn` / `move` /
 `stop` / `entityUpdate`).
+
+**Crowd cap (R1, `World.pickCrowd`).** Each interest pass, a viewer with more than `MAX_VISIBLE_PLAYERS` (env, default
+100, 0 = off; shown on the admin dashboard) players in range gets `Player.crowd`: the must-see players plus the nearest
+others up to the cap; a player already shown counts `CROWD_SWAP_M` (8 m) nearer, so the edge does not flicker. Must-see
+(`World.mustSee`): the viewer's attack/skill target, anyone targeting the viewer, players it hit or was hit by in the
+last `FOE_MEMORY_MS` (15 s: PvP cape fights, Bounty Hunter vs Wanted, job fights), party and guild members
+(`alsoMustSee`, set by gameplay.ts). Must-see players count toward the cap. Monsters, NPCs, items and horses are never
+capped. The cap also applies to the `worldEnter` snapshot and to warps (picked first), so nobody is sent a whole town
+only to have most of it despawned 200 ms later.
+
+**Local chat (R5, `World.sayLocal`).** To every player within `viewRange` of the speaker (about the AoI radius), the
+speaker included; the crowd cap does not apply (you hear the nearby players you are not shown). Party, guild,
+whisper, stall, system and GM notices are unchanged.
 
 ## 3. Client
 
@@ -127,6 +140,7 @@ all fixes. 60 s measured after a 20 s warm-up; tick budget 100 ms (10 Hz). Serve
 | spread 100 after | 6.0 / 11.3 / 347¹ | 7.6 % | 39 kB/s | 0.4 kB/s | 4.0 | 16 B/s | 0.4 / 8.7 |
 | **town 500 before** | **42 / 65 / 120** | **77 %** | **9.99 MB/s** | **20 kB/s** | 133 | 15 B/s | **24.5 / 71.7** |
 | **town 500 after** | **24 / 32 / 40** | **46 %** | **6.25 MB/s** | **12.5 kB/s** | 133 | 15 B/s | **6.5 / 32** |
+| **town 500 + crowd cap + chat range** | **35 / 40 / 45** | **37 %** | **1.91 MB/s** | **3.8 kB/s** | **35** | 15 B/s | **2.8 / 40** |
 | spread 500 before | 23.6 / 30.6 / 39 | 31 % | 1.01 MB/s | 2.0 kB/s | 16.1 | 16 B/s | 0.5 / 27.6 |
 | spread 500 after | 18.0 / 23.6 / 33 | 28 % | 0.80 MB/s | 1.6 kB/s | 16.2 | 16 B/s | 0.6 / 22.1 |
 
@@ -139,8 +153,17 @@ Message mix, town 500 after (per second, server out): move 34 366 (4.19 MB), sto
 Spread 500 after: chat 3 852 (0.34 MB — the largest item: local chat is world-wide, UX_GAPS C6), move 1 944 (0.24 MB),
 stop 1 675, spawn 177, combat 69, cast 41. Bot process: 253–672 MB for 500 bots (one process); server RSS 450–760 MB.
 
-**What breaks first at 500.** Nothing broke: no disconnects, ticks well inside the budget, RTT p95 ≤ 32 ms. The
-first limit is the crowded-town **fan-out**: every walking player is a message to every other player in view, so the
+**Crowd cap at 500 in one town** (decision 2026-10-11; locked runs, 60 s). First version (nearest 100 re-picked every
+pass, 8 m margin): bytes fell to 8.3 MB/s but the moving crowd churned **8 200 spawns + 8 200 despawns per second** and
+the tick p50 rose to 76 ms. Second (shown players sticky with a 30 m margin, one swap per pass): 2.8 MB/s, 1 580
+spawns/s, tick p50 78 ms — a profile showed `pickCrowd` at 15 % and the interest pass at 29 % of CPU. Final
+(re-pick once a second per viewer, staggered): **1.91 MB/s out (3.8 kB/s and 35 msgs/s per client, from 12.5 kB/s and
+133), 517 spawns/s, tick p50/p95 35/40 ms, CPU 37 %, RTT p95 40 ms, no disconnects.** The ticks cost ~10 ms more than
+without the cap (the crowd pick), and are well inside the 100 ms budget. In the town scenario every bot is within chat
+range, so chat (3 720 lines delivered/s) is unchanged there; spread out, range-limited chat removes the world-wide fan-out.
+
+**What breaks first at 500 (before the cap).** Nothing broke: no disconnects, ticks well inside the budget, RTT p95 ≤ 32 ms. The
+first limit was the crowded-town **fan-out** (now capped, above): every walking player is a message to every other player in view, so the
 bytes grow with N² (500 in one town = 6.25 MB/s ≈ 50 Mbit/s up from the server, 12.5 kB/s and 133 messages/s into each
 client — fine for the network, heavy for a browser drawing 500 characters). Before this pass the same case spent half
 the server CPU in per-message socket writes (fixed, N1) and sent 80 Mbit/s (N2). Second: world-wide local chat, which
@@ -150,18 +173,31 @@ also fans out N² (rate-limited to 1 line/s per player, so 500 spammers could pu
 
 ## 8. What remains
 
-- **R1 — visible-player cap (recommended next)**: in `updateInterest`, when more than K players (K ≈ 100) are in
-  range, keep the K nearest plus party members, the current target and attackers; spawn/despawn the rest with the
-  existing hysteresis. Cuts the crowded-town fan-out ~5× (server bytes and client draw load), the only O(N²) term
-  left. A gameplay decision (who you can see in a 500-player plaza), so not done here.
 - R2 binary encoding: only after R1, and only if a box must hold more than ~500.
-- R5 local chat to the view range (or a world channel with its own slower budget).
 - R3 connection-rate limit per IP (e.g. 10 upgrades / 10 s) against reconnect storms from one address.
-- **Private build** (`C:\dev\jangan-private-wt`) on its next merge of master:
-  - `connection.ts onFrame`: its `flyInput`/`swimInput` exemption from the shared bucket conflicts with the new
-    per-type check; keep their own budgets (`FLIGHT_RATE_LIMITS`, `COURT_RATE_LIMITS`), drop the exemption (the
-    ceiling is now 60/s), and call `this.budget(t, limit)` for them.
-  - Round the `fly` / `swim` samples and flight/swim broadcast positions with `wirePos` (world.ts).
-  - `EntityView.setMove`/`stop` smoothing applies to ground segments; the fly/swim views should feed their sample
-    corrections through `CorrectionOffset` too.
-  - `CLOSE_CODE.slow` (4011) and `MESSAGE_RATE_LIMITS` are additive and wire-compatible; `PROTOCOL_VERSION` unchanged.
+- A Bounty Hunter / Wanted pair that has not fought yet and does not target each other is not must-see (the
+  Hunter's target is, as soon as it attacks).
+
+## 9. Private build: exact steps for the next merge of master into `C:devjangan-private-wt`
+
+1. `apps/server/src/connection.ts onFrame` (conflict). Take master's version of the head of `onFrame` (the shared
+   bucket check before parsing, then `parseClientMessage`, `net.recvd`, the `MESSAGE_RATE_LIMITS` check). Delete the
+   private exemption block (`if (!(parsed.ok && (parsed.msg.t === 'flyInput' || parsed.msg.t === 'swimInput')) &&
+   !this.bucket.take())`): the flood ceiling is now 60/s (burst 120), above flyInput 20/s plus everything else. Keep the
+   private binary-frame branch as master has it. Keep `case 'flyInput'` / `case 'swimInput'` and their own budgets
+   (`FLIGHT_RATE_LIMITS`, `COURT_RATE_LIMITS` via `takeBudget`); `takeBudget` and master's `budget(t, limit)` do the
+   same thing — keep one (master's `budget`) and point `takeBudget` callers at it.
+2. `apps/server/src/connection.ts leaveWorld`: keep master's `hold` parameter and the
+   `!game.gameplay.penalty.linger(...) && !(hold && game.holds.hold(p, leave))` line. If the private build ends a flight
+   or a swim in `forget`/leave, nothing else changes: a reconnect saves and re-enters the character (a flyer lands where
+   the save put it, as on any relog).
+3. Wire positions: replace `pos: [...p.pos], yaw: p.yaw` with `pos: wirePos(p.pos), yaw: wireYaw(p.yaw)` in
+   `flight/flight.ts` (the `stop` after landing, ~line 442) and `drowned-court` (the `warp` ~line 419 and the `stop`
+   ~line 495); import both from `../world.ts`. The `fly`/`swim` samples are already rounded (`r2v`).
+4. Crowd cap: flight and swim broadcasts go through `broadcastAbout` (known-based), so they follow the cap with no
+   change. If the court sends sea-monster samples with its own player loop, filter it by `viewer.known.has(id)`.
+5. Client: in the fly/swim entity views, route a sample that jumps the drawn position through the entity's
+   `correction` (`CorrectionOffset.set(drawnX, drawnZ, newPos)` before applying it), as `EntityView.stop` does.
+6. Tests: run `apps/server/test/network*.test.ts`, `crowd.test.ts`, the flight and court suites, then
+   `pnpm netload --bots 100 --scenario town` (under BENCH.lock). `PROTOCOL_VERSION` is unchanged; `CLOSE_CODE.slow`
+   (4011) and the admin `maxVisiblePlayers` field are additive.
