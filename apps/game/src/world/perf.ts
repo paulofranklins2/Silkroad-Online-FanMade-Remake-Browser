@@ -57,6 +57,8 @@ export const PERF = {
   licensedTextureShare: true,
   /** Shader sources of ready effects and the raw data of array / volume textures dropped (three/cpu-copies.ts, round 7). */
   trimCpuCopies: true,
+  /** Bounding refreshes keep no per-vertex Vector3 copy on the mesh (three/positions-trim.ts, round 7). */
+  trimPositions: true,
 }
 
 export type PerfSwitch = keyof typeof PERF

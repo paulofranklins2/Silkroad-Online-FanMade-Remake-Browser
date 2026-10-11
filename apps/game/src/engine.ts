@@ -3,6 +3,7 @@ import { gpuInfoFromEngine, type GpuInfo } from '@sro/world-render'
 import { SOFTWARE_GPU } from './settings.ts'
 import { installGpuProfile, startGpuDiagnostics } from './gpu-profile.ts'
 import { trimCpuCopies } from './three/cpu-copies.ts'
+import { installPositionsTrim } from './three/positions-trim.ts'
 import { installShaderReadyCache } from './three/shader-ready-cache.ts'
 import { PERF } from './world/perf.ts'
 
@@ -174,6 +175,7 @@ export async function createEngine(canvas: HTMLCanvasElement, gpuLimits: GpuLimi
   installShaderReadyCache()
   // CPU copies kept only for an in-place context restore, which WebGPU never does here (three/cpu-copies.ts)
   trimCpuCopies(engine)
+  installPositionsTrim()
   const gpu = gpuInfoFromEngine(engine, {
     isFallbackAdapter: !!(adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter),
     ...(adapter.info?.vendor ? { vendor: adapter.info.vendor } : {}),
