@@ -56,7 +56,7 @@ export class PvpService implements GameplayModule {
       const last = this.g.hunters.lastPvpAt(p.characterId)
       if (pvpOffRefusal(town, at!, last, now)) {
         const s = Math.ceil((pvpOffAt(at!, last) - now) / 1000)
-        return fail('in_combat', `The PvP cape comes off in town, or after 5 minutes without PvP (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left).`)
+        return fail('pvp_locked', `The PvP cape comes off in town, or 5 minutes after your last PvP fight (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left).`)
       }
       this.flagged.delete(p.characterId)
       p.send({ t: 'chat', channel: 'system', text: 'PvP cape off.' })

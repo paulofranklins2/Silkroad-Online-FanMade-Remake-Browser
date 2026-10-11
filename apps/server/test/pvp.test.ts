@@ -78,7 +78,8 @@ describe('the PvP cape rule (pure)', () => {
     expect(pvpOnRefusal(false, now - 60_000, now)).toBeNull()
     expect(pvpOffRefusal(true, now, now, now)).toBeNull()
     expect(pvpOffRefusal(false, now - PVP_OFF_AFTER_MS, null, now)).toBeNull()
-    expect(pvpOffRefusal(false, now - PVP_OFF_AFTER_MS + 1, null, now)).toBe('locked')
+    expect(pvpOffRefusal(false, now - 1000, null, now)).toBeNull()
+    expect(pvpOffRefusal(false, now - 2000, now - 1000, now)).toBe('locked')
     expect(pvpOffRefusal(false, now - 2 * PVP_OFF_AFTER_MS, now - 1000, now)).toBe('locked')
   })
 })
@@ -105,20 +106,22 @@ describe('the PvP cape (pvpFlag)', () => {
     expect(x.cape(c)).toMatchObject({ ok: true })
   })
 
-  it('off outside town only 5 min after it went on and after the last PvP hit; at once in town; a relog keeps it', () => {
+  it('off outside town at once without a PvP fight, else 5 min after the last PvP hit; at once in town; a relog keeps it', () => {
     const x = harness()
     const a = x.char([0, 0, 0], 'Alpha')
     const b = x.char([1, 0, 0], 'Beta')
     x.tick(100)
     expect(x.cape(a)).toMatchObject({ ok: true })
     expect(x.cape(b)).toMatchObject({ ok: true })
-    expect(x.cape(a, false)).toMatchObject({ ok: false, reason: 'in_combat' })
+    // no PvP fight since it went on: off at once, and back on
+    expect(x.cape(a, false)).toMatchObject({ ok: true })
+    expect(x.cape(a)).toMatchObject({ ok: true })
     x.h.now += PVP_OFF_AFTER_MS - 2000
     expect(x.attack(b, a.p)).toMatchObject({ ok: true })
     x.tick(3000)
     expect(x.g.hunters.lastPvpAt(a.p.characterId)).not.toBeNull()
     // the hit restarted the lock
-    expect(x.cape(a, false)).toMatchObject({ ok: false })
+    expect(x.cape(a, false)).toMatchObject({ ok: false, reason: 'pvp_locked' })
     x.h.req(b.p, { t: 'stopAction' })
     // a relog does not take it off
     x.h.world.remove(a.p.id, x.h.now)

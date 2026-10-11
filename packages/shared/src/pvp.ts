@@ -28,9 +28,9 @@ export function pvpOnRefusal(inTown: boolean, lastCombatAt: number, now: number)
   return now - lastCombatAt < PVP_COMBAT_MS ? 'in_combat' : null
 }
 
-/** When the cape may come off outside a town (ms epoch): 5 minutes after it went on or the last PvP hit. */
+/** When the cape may come off outside a town (ms epoch): at once if no PvP hit since it went on, else 5 minutes after the last PvP hit. */
 export function pvpOffAt(flaggedAt: number, lastPvpAt: number | null): number {
-  return Math.max(flaggedAt, lastPvpAt ?? 0) + PVP_OFF_AFTER_MS
+  return lastPvpAt === null || lastPvpAt < flaggedAt ? flaggedAt : lastPvpAt + PVP_OFF_AFTER_MS
 }
 
 /** Whether the cape may come off now (null: yes). */

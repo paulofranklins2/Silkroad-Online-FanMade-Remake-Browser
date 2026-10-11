@@ -9,6 +9,7 @@ export const enFailW8 = {
   'action.fail.not_mounted': 'You are not riding a horse.',
   'action.fail.moving': 'Stop moving first.',
   'action.fail.in_combat': 'Cannot do that during battle.',
+  'action.fail.pvp_locked': 'The PvP cape comes off in town, or 5 minutes after your last PvP fight.',
   'action.fail.cos_active': 'You already have a horse.',
   'action.fail.broken': 'The item is broken.',
   'action.fail.nothing_to_repair': 'No item needs repairing.',
