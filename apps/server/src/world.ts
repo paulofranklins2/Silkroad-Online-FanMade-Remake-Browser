@@ -312,7 +312,9 @@ export function wireYaw(y: number): number {
 /** Crowd cap default (MAX_VISIBLE_PLAYERS): the nearest this many players are shown when more are in range. */
 export const MAX_VISIBLE_PLAYERS = 100
 /** A player already shown counts as this much nearer (m) when the crowd is re-picked, so the edge does not flicker. */
-export const CROWD_SWAP_M = 8
+export const CROWD_SWAP_M = 30
+/** At most this many shown players are swapped for nearer ones per viewer per interest pass (free slots fill at once). */
+export const CROWD_SWAPS_PER_PASS = 1
 /** A player fight keeps both sides visible to each other this long after the last hit (ms). */
 export const FOE_MEMORY_MS = 15_000
 
@@ -1033,11 +1035,22 @@ export class World {
       else rest.push({ id: e.id, d: viewer.known.has(e.id) ? d - CROWD_SWAP_M : d })
     }
     if (keep.size + rest.length <= max) return
-    rest.sort((x, y) => x.d - y.d)
-    for (const x of rest) {
-      if (keep.size >= max) break
-      keep.add(x.id)
+    // shown players stay while they fit; free slots go to the nearest newcomers; then at most CROWD_SWAPS_PER_PASS
+    // shown players (the farthest) give way to clearly nearer newcomers (shown ones count CROWD_SWAP_M nearer)
+    const shown = rest.filter((x) => viewer.known.has(x.id)).sort((x, y) => x.d - y.d)
+    const fresh = rest.filter((x) => !viewer.known.has(x.id)).sort((x, y) => x.d - y.d)
+    const slots = Math.max(0, max - keep.size)
+    const take = shown.slice(0, slots)
+    let f = 0
+    while (take.length < slots && f < fresh.length) take.push(fresh[f++]!)
+    for (let swaps = 0; swaps < CROWD_SWAPS_PER_PASS && f < fresh.length; swaps++) {
+      // the farthest shown player still taken
+      let worst = -1
+      for (let i = 0; i < take.length; i++) if (viewer.known.has(take[i]!.id) && (worst < 0 || take[i]!.d > take[worst]!.d)) worst = i
+      if (worst < 0 || fresh[f]!.d >= take[worst]!.d) break
+      take[worst] = fresh[f++]!
     }
+    for (const x of take) keep.add(x.id)
     viewer.crowd = keep
   }
 

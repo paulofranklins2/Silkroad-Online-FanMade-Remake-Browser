@@ -1,9 +1,9 @@
 // docs/NETWORK_AUDIT.md R1 (crowd cap) and R5 (local chat in view range).
 import type { ServerMessage } from '@sro/shared'
 import { describe, expect, it } from 'vitest'
-import { CROWD_SWAP_M, FOE_MEMORY_MS, World, type Player } from '../src/world.ts'
+import { CROWD_SWAP_M, CROWD_SWAPS_PER_PASS, FOE_MEMORY_MS, World, type Player } from '../src/world.ts'
 
-function setup(n: number, max = 10) {
+function setup(n: number, max = 10, spacing = 1) {
   const w = new World('jangan', 5, 20, null)
   w.maxVisiblePlayers = max
   const inbox = new Map<number, ServerMessage[]>()
@@ -15,7 +15,7 @@ function setup(n: number, max = 10) {
   }
   const viewer = add(0, 0, 0)
   // others on a line: player k at k metres
-  const others = Array.from({ length: n }, (_, i) => add(i + 1, i + 1, 0))
+  const others = Array.from({ length: n }, (_, i) => add(i + 1, (i + 1) * spacing, 0))
   const seen = (v: Player) => [...v.known].filter((id) => w.players.has(id))
   return { w, viewer, others, add, inbox, seen }
 }
@@ -36,12 +36,13 @@ describe('crowd cap', () => {
   })
 
   it('hysteresis: a newcomer must be clearly nearer than a shown player to take its place', () => {
-    const { w, viewer, others, seen } = setup(30)
+    // players every 5 m: the 10 shown at 5..50 m
+    const { w, viewer, others, seen } = setup(20, 10, 5)
     const now = Date.now()
     w.updateInterest(now)
     const eleventh = others[10]!
-    // a bit nearer than the 10th shown (at 10 m) but within CROWD_SWAP_M: no swap
-    eleventh.pos = [10 - CROWD_SWAP_M / 2, 0, 0.1]
+    // nearer than the farthest shown (50 m) but not by CROWD_SWAP_M: no swap
+    eleventh.pos = [50 - CROWD_SWAP_M / 2, 0, 0.1]
     w.updateInterest(now + 300)
     expect(seen(viewer)).not.toContain(eleventh.id)
     // clearly nearer: swaps in, the farthest shown one leaves
@@ -49,6 +50,24 @@ describe('crowd cap', () => {
     w.updateInterest(now + 600)
     expect(seen(viewer)).toContain(eleventh.id)
     expect(seen(viewer)).not.toContain(others[9]!.id)
+    expect(seen(viewer)).toHaveLength(10)
+  })
+
+  it('swaps are rationed: at most CROWD_SWAPS_PER_PASS per pass, so a crowd reshuffle trickles in', () => {
+    const { w, viewer, others, seen } = setup(15, 10)
+    // 10 shown at 60..105 m, 5 more at 125 m (not shown: the 10 are nearer)
+    others.forEach((p, i) => (p.pos = i < 10 ? [60 + 5 * i, 0, 0] : [125, 0, 0]))
+    const now = Date.now()
+    w.updateInterest(now)
+    const newcomers = others.slice(10)
+    const fresh = () => newcomers.filter((p) => seen(viewer).includes(p.id)).length
+    expect(fresh()).toBe(0)
+    // all five walk right up to the viewer at once
+    for (const p of newcomers) p.pos = [1, 0, 0]
+    w.updateInterest(now + 300)
+    expect(fresh()).toBe(CROWD_SWAPS_PER_PASS)
+    for (let k = 2; k <= 6; k++) w.updateInterest(now + 300 * k)
+    expect(fresh()).toBe(5)
     expect(seen(viewer)).toHaveLength(10)
   })
 
