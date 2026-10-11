@@ -88,6 +88,8 @@ const ROUTE = flag('route')
 const UNMINIFIED = !!PROFILE || ROUTE
 const DIST = join(WORK, UNMINIFIED ? 'dist-prof' : 'dist')
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** --size 1280x720: the page's viewport (default 1920x1080; smaller needs less memory on a shared PC). */
+const [SIZE_W, SIZE_H] = opt('size', '1920x1080').split('x').map(Number) as [number, number]
 /** --min-free-mb: below this much free RAM the bench stops (default 900). */
 const MIN_FREE_MB = Number(opt('min-free-mb', '900'))
 /** Every Chrome the bench started (killed when memory runs out). */
@@ -453,7 +455,7 @@ async function openChrome(o: { preset: string; headed: boolean }): Promise<Page>
       ...(o.headed ? [] : ['--headless=new']),
       `--remote-debugging-port=${port}`,
       `--user-data-dir=${dir}`,
-      '--window-size=1920,1080',
+      `--window-size=${SIZE_W},${SIZE_H}`,
       '--ignore-gpu-blocklist',
       '--enable-unsafe-webgpu',
       '--disable-background-timer-throttling',
@@ -521,7 +523,7 @@ async function openChrome(o: { preset: string; headed: boolean }): Promise<Page>
   }
   await send('Page.enable')
   await send('Runtime.enable')
-  await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false })
+  await send('Emulation.setDeviceMetricsOverride', { width: SIZE_W, height: SIZE_H, deviceScaleFactor: 1, mobile: false })
   const settings = { graphics: { preset: o.preset, resolution: 1, firstRun: false } }
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('sro.settings', ${JSON.stringify(JSON.stringify(settings))}) } catch (e) {}` })
   await send('Page.navigate', { url: `http://localhost:${PAGE_PORT}/?charbench=1&bench=1&skip=1&mute=1${QUERY ? '&' + QUERY : ''}` })
