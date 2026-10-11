@@ -1,6 +1,8 @@
 import { Effect, WebGPUEngine, type AbstractEngine } from '@babylonjs/core'
 import { gpuInfoFromEngine, type GpuInfo } from '@sro/world-render'
 import { SOFTWARE_GPU } from './settings.ts'
+import { installGpuProfile, startGpuDiagnostics } from './gpu-profile.ts'
+import { trimCpuCopies } from './three/cpu-copies.ts'
 import { installShaderReadyCache } from './three/shader-ready-cache.ts'
 import { PERF } from './world/perf.ts'
 
@@ -47,7 +49,7 @@ export const GPU_POWER_PREFERENCE = 'high-performance' as const
 /** The part of a GPUAdapter the options read (tests pass a fake). */
 export interface AdapterLike {
   readonly features: Iterable<string>
-  readonly info?: { vendor?: string; architecture?: string; description?: string; isFallbackAdapter?: boolean }
+  readonly info?: { vendor?: string; architecture?: string; device?: string; description?: string; isFallbackAdapter?: boolean }
   /** Older spelling of info.isFallbackAdapter. */
   readonly isFallbackAdapter?: boolean
 }
@@ -147,6 +149,8 @@ export async function createEngine(canvas: HTMLCanvasElement, gpuLimits: GpuLimi
     supported = false
   }
   if (!supported) throw new WebGpuUnavailableError('missing', 'WebGPU is not available in this browser')
+  // `?gpuProfile=mac|min` and `?dpr=` (gpu-profile.ts): the Mac paths on a PC
+  installGpuProfile()
   const adapter = await preQueryAdapter()
   if (!adapter) throw new WebGpuUnavailableError('no-adapter', 'WebGPU found no graphics adapter (GPU blocklisted, or hardware acceleration off)')
   let engine: WebGPUEngine | undefined
@@ -162,10 +166,14 @@ export async function createEngine(canvas: HTMLCanvasElement, gpuLimits: GpuLimi
     throw new WebGpuUnavailableError('failed', `WebGPU init failed: ${err instanceof Error ? err.message : String(err)}`)
   }
   trimBindGroupCache(engine)
+  // adapter, features, limits and validation errors: console, window.__sroGpu and the perf overlay (gpu-profile.ts)
+  startGpuDiagnostics(engine, adapter.info)
   // Compiled shader variants stay for the session (PERF.effectsPersistent, docs/PERF_OVERALL.md round 3).
   Effect.PersistentMode = PERF.effectsPersistent
   // ShaderMaterial readiness without its per-draw define string (PERF.shaderReadyCache, round 5)
   installShaderReadyCache()
+  // CPU copies kept only for an in-place context restore, which WebGPU never does here (three/cpu-copies.ts)
+  trimCpuCopies(engine)
   const gpu = gpuInfoFromEngine(engine, {
     isFallbackAdapter: !!(adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter),
     ...(adapter.info?.vendor ? { vendor: adapter.info.vendor } : {}),

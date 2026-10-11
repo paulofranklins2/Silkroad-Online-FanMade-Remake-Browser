@@ -72,7 +72,13 @@ async function makeTexture(loader: LoaderInternals, key: string, bytes: ArrayBuf
       samplingMode: s.samplingMode,
       mimeType: image.mimeType,
       useSRGBBuffer: srgb && loader.parent.useSRGBBuffers,
-      onLoad: () => resolve(tex),
+      onLoad: () => {
+        // the bytes / bitmap stay only for a context restore, which WebGPU never does here (three/cpu-copies.ts)
+        const it = tex.getInternalTexture() as { _buffer?: unknown } | null
+        if (it) it._buffer = null
+        if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) source.close()
+        resolve(tex)
+      },
       onError: (message?: string) => reject(new Error(`shared texture ${key}: ${message ?? 'failed'}`)),
     })
     tex.wrapU = s.wrapU

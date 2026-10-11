@@ -55,6 +55,8 @@ export const PERF = {
    * (three/gltf-texture-share.ts; round 7: 73 uncompressed 2048² copies were 1.56 GB with 8 players). Read at each load.
    */
   licensedTextureShare: true,
+  /** Shader sources of ready effects and the raw data of array / volume textures dropped (three/cpu-copies.ts, round 7). */
+  trimCpuCopies: true,
 }
 
 export type PerfSwitch = keyof typeof PERF
