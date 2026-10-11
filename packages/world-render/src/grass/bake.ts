@@ -360,7 +360,12 @@ export class RegionGrassBake {
 
   /** Bakes rows until `stop()` says so (asked after each row) or the region is done; true when done. */
   step(stop: () => boolean = () => false): boolean {
-    if (!this.done && !this.corner) this.prepare()
+    // Overall Pass (grass): the preparation (≈ 2 ms) is a slice of its own when the budget is spent after it, so a
+    // region's first slice never stacks the preparation and a frame's worth of rows (the teleport / load hitch).
+    if (!this.done && !this.corner) {
+      this.prepare()
+      if (stop()) return false
+    }
     while (this.row < GRASS_REGION_M) {
       this.bakeRow(this.row++)
       if (stop()) break

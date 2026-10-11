@@ -140,7 +140,7 @@ export interface GrassFieldOptions {
   now?: () => number
   /** Bake budget per frame (ms, default 1). */
   sliceMs?: number
-  /** Bake budget per frame while a region near the camera is not baked yet (ms, default 4: a load or a teleport). */
+  /** Bake budget per frame while a region near the camera is not baked yet (ms, default 3: a load or a teleport). */
   urgentSliceMs?: number
   /**
    * The baked light of a region: its lightmap as RGBA (any size; row 0 = south). Default: the region's terrain
@@ -279,7 +279,7 @@ export class GrassField implements GroundCover, GrassFieldAccess {
     this.scene = host.scene
     this.now = opts.now ?? (() => performance.now())
     this.sliceMs = opts.sliceMs ?? 1
-    this.urgentSliceMs = opts.urgentSliceMs ?? 4
+    this.urgentSliceMs = opts.urgentSliceMs ?? 3
     this.lightmapOf = opts.lightmap === undefined ? this.defaultLightmap() : opts.lightmap
     this.maskOf = opts.mask === undefined ? this.defaultMask() : opts.mask
     this.table = grassTileTable(host.manifest.tiles)
@@ -744,7 +744,8 @@ export class GrassField implements GroundCover, GrassFieldAccess {
         this.stats.lastRegionBakeMs = e.bakeMs
         this.dirty = true
       }
-      if (stop() || !this.queue.length) break
+      // a finished region with less than ~60 % of the budget left: the next one (its ≈ 2 ms preparation) waits a frame
+      if (stop() || !this.queue.length || (done && this.now() - start > (deadline - start) * 0.4)) break
       bestD = Infinity
       best = -1
       for (let i = 0; i < this.queue.length; i++) {
