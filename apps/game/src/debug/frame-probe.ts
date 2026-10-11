@@ -105,8 +105,8 @@ export class FrameProbe {
   private add(label: string, ms: number): void {
     this.counts.set(label, (this.counts.get(label) ?? 0) + 1)
     if (this.cur) this.cur.sys.set(label, (this.cur.sys.get(label) ?? 0) + ms)
-    else if (!this.active.size || label.startsWith('net') || label.startsWith('stream')) {
-      // between frames: only the outermost wrapped call counts toward `outside`
+    else {
+      // between frames: every label (nested ones too, a despawn's parts); only the outermost counts toward `outside`
       const key = 'outside.' + label
       this.between.set(key, (this.between.get(key) ?? 0) + ms)
       if (!this.active.size) this.betweenMs += ms

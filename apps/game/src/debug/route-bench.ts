@@ -60,7 +60,7 @@ let factoriesWrapped = false
  * Called at install (the feature factories must be wrapped before the world screen builds its features).
  */
 export function instrumentClasses(probe: FrameProbe): void {
-  probe.wrapProto(EntityView.prototype, ['update', 'updateLabel', 'dispose'], 'entities')
+  probe.wrapProto(EntityView.prototype, ['update', 'updateLabel', 'dispose', 'die', 'beginFade'], 'entities')
   // what a despawn costs (entities.dispose holds these)
   probe.wrapProto(CharacterActor.prototype, ['dispose'], 'actor')
   probe.wrapProto(AnimationGroup.prototype, ['dispose', 'stop'], 'bjs.AnimationGroup')
@@ -84,6 +84,8 @@ export function instrumentClasses(probe: FrameProbe): void {
     const wrapped: WorldFeatureFactory = ctx => {
       const f: WorldFeature = make(ctx)
       probe.wrap(f, 'onFrame', `feature.${name}`)
+      probe.wrap(f, 'onEntityRemoved', `removed.${name}`)
+      probe.wrap(f, 'onEntityAdded', `added.${name}`)
       return f
     }
     Object.defineProperty(wrapped, 'name', { value: make.name })
