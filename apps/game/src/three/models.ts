@@ -933,7 +933,10 @@ export class ModelLibrary {
       if (plan?.extra.length) comp.bind.unshift(...composeEquipment(lookup, actor.model.code, plan.extra).bind)
       for (const r of comp.rejected) if (r.reason !== 'unknown') console.warn(`[models] ${actor.model.code}: ${r.code} not drawn (${r.detail})`)
     }
-    const items = (comp?.bind ?? []).filter(b => (!look.pilot && !look.licensed) || b.kind === 'socket')
+    // Licensed and pilot bodies draw their armour from their own outfit (§16.9): of the retail items only the socket ones
+    // that are not armour (weapons, shields). Retail shoulder pieces are socket items too (clothes_04_sa hangs two
+    // ornament balls on the neck): on a licensed body they floated beside the head (black on Low, 2026-10-11).
+    const items = (comp?.bind ?? []).filter(b => (!look.pilot && !look.licensed) || (b.kind === 'socket' && !ARMOUR_SLOTS.has(b.slot)))
     const wornWeapon = look.equip ? look.equip.weapon : undefined
     const fallback = !items.some(b => b.slot === 'weapon') && look.fallbackWeapon && (look.equip === undefined || wornWeapon !== undefined)
       ? look.fallbackWeapon
@@ -1198,6 +1201,8 @@ interface WornItem {
 
 /** Slots Hide Weapon hides (setWeaponVisible). */
 const WEAPON_SLOTS: ReadonlySet<WornItem['slot']> = new Set(['weapon', 'shield', 'fallback'])
+/** Armour slots: a licensed or pilot body wears its own outfit there, never the retail item (dress). */
+const ARMOUR_SLOTS: ReadonlySet<string> = new Set(['head', 'shoulders', 'chest', 'legs', 'hands', 'feet'])
 
 /** Worn codes with each seal replaced by its regular row (the model it is drawn with; docs/RARITY.md §5). */
 export function modelCodes(equip: Partial<Record<EquipSlot, string>>): Partial<Record<EquipSlot, string>> {
