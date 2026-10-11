@@ -104,7 +104,7 @@ describe('planPost: preset → pipeline list, in order', () => {
     expect([high.ssr, high.aa, high.sharpen, high.fxaa, high.msaa]).toEqual(['puddles', 'taa', true, false, 1])
     const ultra = planPost('pbr', RENDER_PRESETS.ultra, GPU)
     expect(ultra.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default'])
-    expect(ultra.ssao).toEqual({ ratio: 1, samples: 16 })
+    expect(ultra.ssao).toEqual({ ratio: 1, samples: 24 })
     expect(ultra.ssr).toBe('always')
   })
 
