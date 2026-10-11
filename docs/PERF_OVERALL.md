@@ -72,7 +72,20 @@ the CPU frame with / without the grass meshes is within noise (5.3–5.9 vs 5.6�
 
 ## Before / after
 
-AFTER_TABLE
+The same route, back to back on one build, WebGPU Medium, 8 bots; "before" = `--query perfoff=pipelinesInPlay`
+(the fix off from the first frame). Both runs at ≈ 70 % machine CPU (the other helpers' work; the PC never got quiet
+for a whole pair), so the absolute CPU numbers are ≈ 2× the quiet run above; the comparison is the pair.
+
+| Run | sync pipelines | frames > 250 ms | 100–250 ms | 33–100 ms | p99 | max | stalls (> 100 ms, < 50 ms JS) | spikes near a pipeline |
+|---|---|---|---|---|---|---|---|---|
+| before (fix off) | 46 | **15** | 28 | 168 | 212 ms | 658 ms | 35 | 25 |
+| after (fix on) | **0** | **4** | 20 | 290 | 116 ms | 414 ms | 15 | 0 |
+
+The long freezes the player feels (> 250 ms) dropped 15 → 4 and p99 halved; every remaining stall is unrelated to
+pipelines (the machine at 100 % CPU with < 50 MB free RAM pages; the despawn hitch). The 33–100 ms band grew under
+that load; a quiet-machine pair is still owed: `pnpm charbench --route --bots 8 --configs webgpu-medium` and the
+same with `--query perfoff=pipelinesInPlay`. High (after, fix on): sync pipelines 0, GPU p50 4.7 ms.
+Runs: `work/tmp/routebench/{before6,before8,after3,after2high}` (JSON with every spike, the probe's systems, LoAF).
 
 ## Plan (not done here)
 
