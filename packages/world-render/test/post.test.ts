@@ -98,10 +98,10 @@ describe('planPost: preset → pipeline list, in order', () => {
     expect(med.shafts).toMatchObject({ level: 'low', mode: 'hybrid', ratio: 0.25 })
     expect([med.fxaa, med.msaa, med.sharpen, med.bloom, med.toneMap, med.lutGrade, med.prepass]).toEqual([true, 1, false, 0, 'neutral', true, false])
     const high = planPost('pbr', RENDER_PRESETS.high, GPU)
-    expect(high.stages).toEqual(['ssao', 'taa', 'shafts', 'adapt', 'default']) // §6.20 cut 4: no SSR on High
+    expect(high.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default']) // item 16: SSR on High while puddles
     expect(high.shafts).toMatchObject({ level: 'high', mode: 'march', ratio: 0.5 })
     expect(high.ssao).toEqual({ ratio: 0.5, samples: 8 })
-    expect([high.ssr, high.aa, high.sharpen, high.fxaa, high.msaa]).toEqual(['off', 'taa', true, false, 1])
+    expect([high.ssr, high.aa, high.sharpen, high.fxaa, high.msaa]).toEqual(['puddles', 'taa', true, false, 1])
     const ultra = planPost('pbr', RENDER_PRESETS.ultra, GPU)
     expect(ultra.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default'])
     expect(ultra.ssao).toEqual({ ratio: 1, samples: 16 })
@@ -126,7 +126,7 @@ describe('planPost: preset → pipeline list, in order', () => {
       const plan = planPost('pbr', RENDER_PRESETS[p], GPU16, { taaReprojection: true })
       expect(plan.stages).toEqual(['shafts', 'adapt', 'default'])
       expect([plan.prepass, plan.aa, plan.msaa, plan.sharpen, plan.taaReprojection]).toEqual([false, 'msaa', 4, false, false])
-      expect(plan.dropped.length).toBe(p === 'ultra' ? 3 : 2) // High has no SSR to drop (§6.20 cut 4)
+      expect(plan.dropped.length).toBe(3) // SSAO, SSR (High: 'puddles' since item 16), reprojected TAA
       // Projection-jitter TAA (the default) needs no prepass and stays.
       const plain = planPost('pbr', RENDER_PRESETS[p], GPU16)
       expect(plain.stages).toEqual(['taa', 'shafts', 'adapt', 'default'])

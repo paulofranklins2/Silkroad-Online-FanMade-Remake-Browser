@@ -307,7 +307,7 @@ describe('RenderPost with the shafts (NullEngine)', () => {
     expect(post.plan.msaa).toBe(4)
     expect(post.shafts!.march.samples).toBe(4)
     expect(post.pipeline!.samples).toBe(1)
-    const taa = setup('high', { ...RENDER_PRESETS.high, ssao: null })
+    const taa = setup('high', { ...RENDER_PRESETS.high, ssao: null, ssr: 'off' })
     const p2 = installRenderPost(taa.render)
     taa.render.attachCamera(taa.camera)
     expect(p2.plan.stages[0]).toBe('taa')

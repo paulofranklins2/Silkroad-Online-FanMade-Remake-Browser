@@ -23,10 +23,12 @@ export interface AtmosphereTuning {
   night: AtmosphereLook
 }
 
+// Item 16: the golden hour read hazy and yellow (evening 1.7 × at 0.4 of the start); the low mist now comes from the
+// ground mist layer (mistLevel), so the air above it is clearer and the distance crisp.
 export const ATMOSPHERE: Readonly<AtmosphereTuning> = {
-  day: { density: 1.25, start: 0.6, falloffM: 80 },
-  morning: { density: 1.5, start: 0.45, falloffM: 35 },
-  evening: { density: 1.7, start: 0.4, falloffM: 60 },
+  day: { density: 1.15, start: 0.65, falloffM: 80 },
+  morning: { density: 1.2, start: 0.55, falloffM: 50 },
+  evening: { density: 1.15, start: 0.65, falloffM: 70 },
   night: { density: 1.15, start: 0.8, falloffM: 80 },
 }
 
@@ -54,4 +56,33 @@ export function atmosphereLook(sunElevationDeg: number, t: number, strength = 1,
     start: 1 + (mix('start') - 1) * s,
     falloffM: 80 + (mix('falloffM') - 80) * s,
   }
+}
+
+/**
+ * Item 16: the ground mist's level (0..1, × pbr/fog-plugin.ts MIST_MAX): a low layer anchored at the ground under the
+ * camera that pools in the valleys. Thickest at dawn (sun −4°…12° before noon), lighter at dusk, a thin night haze,
+ * none in the clear midday air; after rain the wet ground breathes it out (wetness, once the rain has eased), and in a
+ * downpour the rain's own haze takes over (the weather fog).
+ */
+export const MIST = { dawn: 1, dusk: 0.55, night: 0.25, afterRain: 0.8 } as const
+
+export function mistLevel(sunElevationDeg: number, t: number, w: { rain: number; wetness: number }): number {
+  const [, wm, we, wn] = atmosphereWeights(sunElevationDeg, t)
+  const low = 1 - smoothstep(6, 16, sunElevationDeg)
+  const time = wm * MIST.dawn * Math.max(low, 0.35) + we * MIST.dusk * low + wn * MIST.night
+  const after = MIST.afterRain * clamp01(w.wetness) * (1 - 0.6 * clamp01(w.rain)) * (0.5 + 0.5 * low)
+  return clamp01(Math.max(time, after))
+}
+
+/**
+ * Item 16 (the AAA pass): how far the clouds open toward a low sun in rain (0..1): the sun breaking through under a
+ * storm deck at golden hour. Only with a raining or heavy sky and a sun between −2° and ~25°; a black storm opens less.
+ * The dome thins its clouds and rain shafts in that bearing near the horizon (sky-shaders skyMoonV.w), and the key
+ * light keeps most of its strength.
+ */
+export function sunBreak(sunElRad: number, precipitation: number, cloudCover: number, darkness: number): number {
+  const deg = (sunElRad * 180) / Math.PI
+  const low = smoothstep(-2, 3, deg) * (1 - smoothstep(14, 26, deg))
+  const wet = Math.max(0, Math.min(1, Math.max(precipitation, (cloudCover - 0.6) / 0.4)))
+  return 0.85 * low * wet * (1 - 0.35 * Math.max(0, Math.min(1, darkness)))
 }

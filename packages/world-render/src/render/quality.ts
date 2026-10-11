@@ -227,8 +227,9 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     ssao: { halfRes: true, samples: 8 },
     // WAVE_PLAN3 §6.20 cut 4 (the wave-9 final gate, work/tmp/w9-finish/budgets.md): High missed its 16.7 ms p95 at the
     // plaza and in the crowd; SSR off took 2.3 ms of GPU and ~3 ms of p95 there. Ultra keeps it; puddles still reflect
-    // the sky cube; Options → Advanced → Reflections brings it back.
-    ssr: 'off',
+    // the sky cube; Options → Advanced → Reflections brings it back. Item 16 (the AAA pass): back as 'puddles' (it
+    // marches only while the ground holds water, so the dry plaza and crowd frames pay nothing).
+    ssr: 'puddles',
     aa: 'taa',
     lightShafts: 'high',
     eyeAdaptation: true,

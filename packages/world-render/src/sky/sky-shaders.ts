@@ -29,7 +29,7 @@
  *   skyGrade       rgb hue grade (SKY §6.4 gradeSky), a unused
  *   skyNight       rgb airglow radiance (pre-exposure), a earthshine
  *   skyCam         xyz camera (glTF metres), w seconds
- *   skyMoonU/V     moon tangent frame (xyz), w unused
+ *   skyMoonU/V     moon tangent frame (xyz); skyMoonU.w the cloud march's jitter frame (0..7), V.w unused
  *   skyVol0        volumetric layer: x base (km), y top (km), z extinction per km, w storm churn 0..1
  *   skyVol1        xy flash bearing (unit xz, 0 = everywhere), z snow sky 0..1, w cloud ambient boost
  *   skyVol2        x sun halo (core), y sun halo (wide), z moon glow, w rain-shaft strength
@@ -180,6 +180,12 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   let precip = uniforms.skyCloud1.z;
   let up = clamp(dir.y, 0.0, 1.0);
   let hdir = select(vec2f(1.0, 0.0), normalize(vec2f(dir.x, dir.z) + vec2f(1e-7, 0.0)), length(vec2f(dir.x, dir.z)) > 1e-5);
+  // item 16: the gap toward a low sun under rain clouds (skyMoonV.w, sky-system.ts sunBreak): a wide bearing around
+  // the sun, open near the horizon and closing overhead
+  let sunH = normalize(vec2f(sunD.x, sunD.z) + vec2f(1e-6, 0.0));
+  let brkAz = max(dot(hdir, sunH), 0.0);
+  let brk = uniforms.skyMoonV.w * pow(brkAz, 6.0) * (1.0 - smoothstep(0.04, 0.42, dir.y - max(sunD.y, 0.0)));
+  let precipB = precip * (1.0 - brk);
 
   // Star space and the pixel footprint first (fwidth in uniform control flow).
   let sd = vec3f(dot(uniforms.skyStarsX.xyz, dir), dot(uniforms.skyStarsY.xyz, dir), dot(uniforms.skyStarsZ.xyz, dir));
@@ -198,11 +204,11 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   let sunFw = max(fwidth(sunA), 1e-5);
   let inSun = smoothstep(sunR + sunFw, sunR - sunFw, sunA) * step(0.0, dot(dir, sunD));
   let muSun = sqrt(max(1.0 - (sunA / sunR) * (sunA / sunR), 0.0));
-  rgb = rgb + uniforms.skySunColor.rgb * (uniforms.skySun.w * inSun * (1.0 - 0.6 * (1.0 - muSun * muSun)) * (1.0 - precip));
+  rgb = rgb + uniforms.skySunColor.rgb * (uniforms.skySun.w * inSun * (1.0 - 0.6 * (1.0 - muSun * muSun)) * (1.0 - precipB));
   // its halo (forward scattering in the haze): a bright core and a wide soft glow; the clouds below cover it
   let sunUp = smoothstep(-0.05, 0.02, dot(dir, sunD)) * smoothstep(-0.03, 0.01, dir.y);
   let haloK = uniforms.skyVol2.x * exp(-sunA * sunA * 900.0) + uniforms.skyVol2.y * exp(-sunA * 7.0);
-  rgb = rgb + uniforms.skySunColor.rgb * (haloK * sunUp * (1.0 - precip));
+  rgb = rgb + uniforms.skySunColor.rgb * (haloK * sunUp * (1.0 - precipB));
 
   // 3. moon: the retail phase texture on its disc; the texture alpha masks the disc
   let moonR = uniforms.skyCloudAmb.a;
@@ -240,7 +246,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   // horizon, so a full overcast or a storm shows no blue (radiance() and the ambient hide the sky over the same range:
   // sky-system.ts cloudSkyWeight). The layers below draw their shapes over it.
   {
-    let deck = smoothstep(0.7, 0.98, uniforms.skyCloud0.z) * smoothstep(-0.02, 0.02, dir.y);
+    let deck = smoothstep(0.7, 0.98, uniforms.skyCloud0.z) * smoothstep(-0.02, 0.02, dir.y) * (1.0 - brk);
     let deckCol = uniforms.skyCloudAmb.rgb * 0.65 + uniforms.skyCloudLight.rgb * (0.06 + skyHG(muC, 0.3) * 0.3);
     rgb = mix(rgb, deckCol, deck);
     cloudA = max(cloudA, deck);
@@ -267,7 +273,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let s1 = skyVolSlant(dir.y, hl, dH1);
     let sEnd = min(s1, s0 + 9.0);
     let ds = max(sEnd - s0, 0.0) / f32(SKY_VOL_STEPS);
-    let jit = fract(52.9829189 * fract(dot(fragmentInputs.position.xy, vec2f(0.06711056, 0.00583715))));
+    let jit = fract(52.9829189 * fract(dot(fragmentInputs.position.xy + 5.588238 * uniforms.skyMoonU.w, vec2f(0.06711056, 0.00583715))));
     let sigma = uniforms.skyVol0.z * uniforms.skyCloud0.w;
     let phase = mix(skyHG(muC, 0.65), skyHG(muC, -0.15), 0.4) * 4.0 * SKY_PI;
     let lightC = uniforms.skyCloudLight.rgb;
@@ -311,7 +317,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     // far clouds sink into the haze (aerial perspective toward the sky behind them) and fade at the horizon
     let haze = 1.0 - exp(-s0 / 38.0);
     let fadeV = smoothstep(-0.03, 0.02, dir.y) * (1.0 - smoothstep(55.0, 90.0, s0));
-    let aV = (1.0 - T) * fadeV;
+    let aV = (1.0 - T) * fadeV * (1.0 - 0.8 * brk);
     var colV = mix(L / max(1.0 - T, 1e-4), atmo, haze * 0.75);
     // rain clouds are grey, not sky-blue
     colV = mix(colV, vec3f(skyLum(colV)) * vec3f(0.93, 0.96, 1.0), 0.65 * uniforms.skyCloud1.y);
@@ -363,7 +369,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let az = atan2(hdir.y, hdir.x);
     let streak = textureSampleLevel(cloudNoise, cloudNoiseSampler, vec2f(az * 3.0, dir.y * 0.6 + uniforms.skyCam.w * 0.01), 0.0).g;
     let under = (1.0 - smoothstep(0.02, 0.16, dir.y)) * smoothstep(-0.03, 0.0, dir.y);
-    let shaft = uniforms.skyVol2.w * colS * under * mix(0.5, 1.0, streak);
+    let shaft = uniforms.skyVol2.w * colS * under * mix(0.5, 1.0, streak) * (1.0 - brk);
     rgb = mix(rgb, uniforms.skyCloudAmb.rgb * 0.75, clamp(shaft, 0.0, 0.85));
   }
 
@@ -371,7 +377,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   rgb = mix(rgb, vec3f(skyLum(rgb)) * vec3f(0.93, 0.96, 1.0), 0.55 * uniforms.skyCloud1.y * cloudA);
 
   // rain: a greyer, flatter sky; snow: a bright, flat, faintly blue-white grey
-  rgb = mix(rgb, vec3f(skyLum(rgb)), 0.3 * precip);
+  rgb = mix(rgb, vec3f(skyLum(rgb)), 0.3 * precipB);
   rgb = mix(rgb, vec3f(skyLum(rgb)) * vec3f(1.16, 1.19, 1.25), 0.55 * uniforms.skyVol1.z);
 
   // 4. stars (LDR, after the exposure; hidden by clouds, the moon and a bright sky)

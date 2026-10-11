@@ -54,6 +54,19 @@ export const FOG_95 = -Math.log(0.05)
 export const DEFAULT_HEIGHT_FALLOFF_M = 80
 /** kh is clamped here (F ≈ 373): a deep valley seen from a peak saturates instead of overflowing. */
 const MAX_KH = 8
+/**
+ * Item 16 (the AAA lighting pass): the fog's ground reference. `sroFogA.w` packs, besides on/off, the ground height
+ * under the camera (½ m steps from −GROUND_OFFSET m) and the ground-mist density (8 bits of MIST_MAX):
+ * `w = 0` off; `1` the plain height fog; `1 + 256·(gq) + mq` with `gq = 1 + round((groundY + GROUND_OFFSET)·2)`.
+ * Every reader of `a.w` treats > 0.5 as on.
+ */
+const GROUND_OFFSET = 2000
+/** The camera's usual height over the character (m): above it, rays toward the ground thin to the ground's density. */
+export const CAMERA_HEIGHT_M = 14
+/** The ground mist: densest at the ground (1/m at a full level), its e-folding height, where it starts from the eye. */
+export const MIST_MAX = 0.016
+export const MIST_H_M = 7
+export const MIST_START_M = 6
 
 /** Fog density (1/m) for a fog that starts at `startM` and reaches 95% at `endM`. */
 export function fogDensity(startM: number, endM: number): number {
@@ -98,6 +111,10 @@ export class HeightFog {
   startScale = 1
   /** The horizon ring bound on High+ (null: fogColor only). */
   ring: BaseTexture | null = null
+  /** Item 16: the ground under the camera (the character's feet; null: none, the eye-anchored fog alone). */
+  groundY: number | null = null
+  /** Item 16: the ground mist level 0..1 (× MIST_MAX; render/atmosphere.ts mistLevel). */
+  mist = 0
   private activeValue = false
   private readonly lin: [number, number, number] = [0, 0, 0]
   private ringValue = false
@@ -141,7 +158,7 @@ export class HeightFog {
     const start0 = Math.max(0, s.fogStart)
     const end = Math.max(start0 + 1, s.fogEnd)
     const start = start0 * this.startScale
-    this.a.set(fogDensity(start0, end) * this.densityScale, 1 / Math.max(1, this.heightFalloffM), start, on ? 1 : 0)
+    this.a.set(fogDensity(start0, end) * this.densityScale, 1 / Math.max(1, this.heightFalloffM), start, on ? packFogW(this.groundY, this.mist) : 0)
     const inv = 1 / Math.max(1e-3, exposure)
     // The fog colour shows as designed after the post's single tone curve (D4).
     const f = displayToExposed(sky.fogColor, toneMap, this.lin)
@@ -162,6 +179,14 @@ export class HeightFog {
   }
 }
 
+/** `sroFogA.w` when the fog is on (see GROUND_OFFSET). */
+export function packFogW(groundY: number | null, mist: number): number {
+  if (groundY === null || !Number.isFinite(groundY)) return 1
+  const gq = 1 + Math.round(Math.min(Math.max(groundY + GROUND_OFFSET, 0), 2 * GROUND_OFFSET) * 2)
+  const mq = Math.round(Math.min(Math.max(mist, 0), 1) * 255)
+  return 1 + gq * 256 + mq
+}
+
 // ---- shader code ------------------------------------------------------------------------------------------------
 
 /** WGSL: the fog amount and colour (the grass and water chunks can include these too). */
@@ -169,9 +194,27 @@ export const HEIGHT_FOG_WGSL = `
 fn sroHeightFogAmount(posW: vec3f, eye: vec3f, a: vec4f) -> f32 {
   let dist = length(posW - eye);
   let d = max(dist - a.z, 0.0);
-  let kh = clamp((eye.y - posW.y) * a.y, 0.0, ${MAX_KH.toFixed(1)});
-  let f = select((exp(kh) - 1.0) / max(kh, 1e-4), 1.0 + kh * 0.5, kh < 1e-4);
-  return (1.0 - exp(-a.x * d * f)) * a.w;
+  let h = eye.y - posW.y;
+  let kh = clamp(h * a.y, 0.0, ${MAX_KH.toFixed(1)});
+  var f = select((exp(kh) - 1.0) / max(kh, 1e-4), 1.0 + kh * 0.5, kh < 1e-4);
+  // item 16: a.w packs on/off, the ground under the camera and the ground mist (HeightFog.packW)
+  let pk = max(a.w - 1.0, 0.0);
+  let gq = floor(pk / 256.0);
+  var mist = 0.0;
+  if (gq > 0.5) {
+    let g = (gq - 1.0) * 0.5 - ${GROUND_OFFSET.toFixed(1)};
+    // the eye above its usual height: rays down toward the ground see the density of the ground, not of the eye's
+    // altitude grown by e per falloff (the heavy ground fog seen from flying height)
+    let above = max(eye.y - g - ${CAMERA_HEIGHT_M.toFixed(1)}, 0.0);
+    f = f * mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), clamp(h / max(above, 1.0), 0.0, 1.0));
+    // ground mist: density md·e^(−(y − g)/H), integrated exactly along the ray (valleys below the ground pool it)
+    let md = (pk - gq * 256.0) * ${(MIST_MAX / 255).toExponential(6)};
+    let e0 = exp(-clamp((eye.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
+    let e1 = exp(-clamp((posW.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
+    let avg = select((e1 - e0) * ${MIST_H_M.toFixed(1)} / h, 0.5 * (e0 + e1), abs(h) < 0.05);
+    mist = md * max(dist - ${MIST_START_M.toFixed(1)}, 0.0) * avg;
+  }
+  return (1.0 - exp(-a.x * d * f - mist)) * step(0.5, a.w);
 }
 fn sroHeightFogTint(dir: vec3f, horizon: vec3f, sun: vec4f, sunColor: vec3f) -> vec3f {
   let s = pow(max(dot(dir, sun.xyz), 0.0), 8.0) * sun.w;
@@ -187,9 +230,23 @@ export const HEIGHT_FOG_GLSL = `
 float sroHeightFogAmount(vec3 posW, vec3 eye, vec4 a) {
   float dist = length(posW - eye);
   float d = max(dist - a.z, 0.0);
-  float kh = clamp((eye.y - posW.y) * a.y, 0.0, ${MAX_KH.toFixed(1)});
+  float h = eye.y - posW.y;
+  float kh = clamp(h * a.y, 0.0, ${MAX_KH.toFixed(1)});
   float f = kh < 1e-4 ? 1.0 + kh * 0.5 : (exp(kh) - 1.0) / kh;
-  return (1.0 - exp(-a.x * d * f)) * a.w;
+  float pk = max(a.w - 1.0, 0.0);
+  float gq = floor(pk / 256.0);
+  float mist = 0.0;
+  if (gq > 0.5) {
+    float g = (gq - 1.0) * 0.5 - ${GROUND_OFFSET.toFixed(1)};
+    float above = max(eye.y - g - ${CAMERA_HEIGHT_M.toFixed(1)}, 0.0);
+    f *= mix(1.0, exp(-min(above * a.y, ${MAX_KH.toFixed(1)})), clamp(h / max(above, 1.0), 0.0, 1.0));
+    float md = (pk - gq * 256.0) * ${(MIST_MAX / 255).toExponential(6)};
+    float e0 = exp(-clamp((eye.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
+    float e1 = exp(-clamp((posW.y - g) / ${MIST_H_M.toFixed(1)}, -3.0, 30.0));
+    float avg = abs(h) < 0.05 ? 0.5 * (e0 + e1) : (e1 - e0) * ${MIST_H_M.toFixed(1)} / h;
+    mist = md * max(dist - ${MIST_START_M.toFixed(1)}, 0.0) * avg;
+  }
+  return (1.0 - exp(-a.x * d * f - mist)) * step(0.5, a.w);
 }
 vec3 sroHeightFogTint(vec3 dir, vec3 horizon, vec4 sun, vec3 sunColor) {
   float s = pow(max(dot(dir, sun.xyz), 0.0), 8.0) * sun.w;

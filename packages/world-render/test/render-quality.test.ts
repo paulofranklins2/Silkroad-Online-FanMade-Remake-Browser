@@ -73,7 +73,7 @@ describe('RENDER_PRESETS (the §5.1 render rows)', () => {
     expect(PRESETS.map(p => RENDER_PRESETS[p].nightLights.terrainSplat)).toEqual([true, false, false, false])
     expect(PRESETS.every(p => RENDER_PRESETS[p].nightLights.grassSplat)).toBe(true)
     expect([m.ssao, h.ssao, u.ssao]).toEqual([null, { halfRes: true, samples: 8 }, { halfRes: false, samples: 16 }])
-    expect([m.ssr, h.ssr, u.ssr]).toEqual(['off', 'off', 'always']) // §6.20 cut 4 (wave-9 final gate)
+    expect([m.ssr, h.ssr, u.ssr]).toEqual(['off', 'puddles', 'always']) // item 16: High marches only while puddles
     expect([m.aa, h.aa, u.aa]).toEqual(['fxaa', 'taa', 'taa'])
     // Wave 12 (GODRAYS): the sun shafts, light on Medium and full on High and Ultra.
     expect([m.lightShafts, h.lightShafts, u.lightShafts]).toEqual(['low', 'high', 'high'])

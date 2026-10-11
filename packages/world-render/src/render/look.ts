@@ -19,6 +19,8 @@ export const LIGHT_LOOK = {
   atmosphere: true,
   /** Pass 2: the cinematic grade (render/grade.ts GRADE_TIME; off = GRADE_TIME_V1). */
   cinematicGrade: true,
+  /** Item 16: the fog's ground reference and the ground mist (pbr/fog-plugin.ts packFogW, render/atmosphere.ts mistLevel). */
+  groundMist: true,
 }
 
 export type LightLookSwitch = keyof typeof LIGHT_LOOK

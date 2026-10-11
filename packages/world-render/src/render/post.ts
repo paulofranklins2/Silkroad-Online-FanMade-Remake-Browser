@@ -73,7 +73,7 @@ import { CLEAR_RENDER_WEATHER, type RenderWeather } from './weather.ts'
 import { LightShafts, SHAFT_TUNING, SHAFT_TUNING_V1, planShafts, shaftLook, type ShaftMode, type ShaftPlan, type ShaftShadowSource, type ShaftTuning } from './volumetrics/shafts.ts'
 import { EyeAdaptation } from './adaptation.ts'
 import { LIGHT_LOOK } from './look.ts'
-import { atmosphereLook } from './atmosphere.ts'
+import { atmosphereLook, mistLevel, sunBreak } from './atmosphere.ts'
 import { DEFAULT_HEIGHT_FALLOFF_M } from '../pbr/fog-plugin.ts'
 
 export type PostStage = 'fsr' | 'ssao' | 'ssr' | 'taa' | 'shafts' | 'adapt' | 'default'
@@ -890,7 +890,7 @@ export class RenderPost implements RenderPart {
   }
 
   /** Per frame (last in World.update): exposure, bloom threshold, grade, fog numbers, SSR gate, light shafts. */
-  update(_camera: Camera | null, sky: Readonly<SkyState>): void {
+  update(camera: Camera | null, sky: Readonly<SkyState>): void {
     if (this.mode !== 'pbr') return
     const exposure = Math.max(1e-3, sky.exposure * this.exposureTrim)
     const moved = Math.abs(exposure - this.exposure) > 0.002 * this.exposure
@@ -901,6 +901,11 @@ export class RenderPost implements RenderPart {
       this.fog.densityScale = atm.density
       this.fog.startScale = atm.start
       this.fog.heightFalloffM = LIGHT_LOOK.atmosphere ? atm.falloffM : DEFAULT_HEIGHT_FALLOFF_M
+      // Item 16: the fog knows the ground under the camera (no heavy fog from flying height) and pools a ground mist
+      // in the valleys at dawn, dusk and after rain.
+      const target = (camera as { target?: { y: number } } | null)?.target
+      this.fog.groundY = LIGHT_LOOK.groundMist && target && Number.isFinite(target.y) ? target.y : null
+      this.fog.mist = LIGHT_LOOK.groundMist ? mistLevel(sky.sunElevationDeg, sky.t, this.weather) : 0
       this.fog.update(sky, this.exposure, this.plan.toneMap)
       const ring = this.quality.horizonRingFog && sky.horizonRing !== null
       if (ring !== this.fog.ringActive) this.fog.setActive(true, ring)
@@ -944,7 +949,7 @@ export class RenderPost implements RenderPart {
   private updateShafts(shafts: LightShafts, sky: Readonly<SkyState>): void {
     shafts.glowOn = LIGHT_LOOK.lanternGlow
     const cal = (this.render.lighting as { calibration?: { sun: number } } | null)?.calibration
-    const fog = this.fog.active ? this.fog.a.x * this.fog.a.w : 0
+    const fog = this.fog.active && this.fog.a.w > 0.5 ? this.fog.a.x : 0
     const start = this.fog.a.z
     const k = sky.keyLight
     shafts.setFrame(shaftLook({
@@ -956,6 +961,7 @@ export class RenderPost implements RenderPart {
       weather: this.weather,
       fogDensity: fog,
       fogStartM: start,
+      sunBreak: sunBreak(sky.sunElevationDeg * Math.PI / 180, this.weather.rain, this.weather.cloud, 0),
     }, LIGHT_LOOK.atmosphere ? this.shaftTuning : SHAFT_TUNING_V1), sky)
   }
 

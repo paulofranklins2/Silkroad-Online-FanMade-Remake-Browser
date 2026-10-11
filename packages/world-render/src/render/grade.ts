@@ -73,8 +73,9 @@ export const GRADE_TIME: Readonly<Record<LutTime, Readonly<GradeParams>>> = {
   day: { gain: [1.02, 1.0, 0.97], lift: [0, 0, 0.004], gamma: 0.98, saturation: 1.06, contrast: 1.0,
     curve: 0.38, split: 1, shadowTint: [0.93, 0.98, 1.09], highlightTint: [1.05, 1.0, 0.93], skin: 1 },
   // Golden hour: amber highlights, deep teal-blue shadows, a strong curve, no magenta.
-  dusk: { gain: [1.08, 1.0, 0.86], lift: [0.004, 0.004, 0.008], gamma: 1.0, saturation: 1.08, contrast: 1.0,
-    curve: 0.4, split: 1, shadowTint: [0.92, 0.98, 1.1], highlightTint: [1.1, 1.0, 0.84], skin: 0.9, demagenta: 0.8 },
+  // Item 16: crisper and less yellow (the key light is golden already): a smaller blue cut, no shadow lift, more contrast.
+  dusk: { gain: [1.05, 1.0, 0.93], lift: [0, 0.001, 0.004], gamma: 0.98, saturation: 1.06, contrast: 1.05,
+    curve: 0.42, split: 1, shadowTint: [0.91, 0.98, 1.11], highlightTint: [1.07, 1.0, 0.9], skin: 0.9, demagenta: 0.8 },
   // Moonlit: dark but readable, silver-blue highlights, deep navy shadows, no lavender.
   night: { gain: [0.82, 0.94, 1.1], lift: [0.003, 0.007, 0.02], gamma: 0.94, saturation: 0.85, contrast: 1.0,
     curve: 0.25, split: 1, shadowTint: [0.9, 0.97, 1.12], highlightTint: [0.98, 1.0, 1.04], skin: 0.5, demagenta: 1 },
@@ -95,7 +96,9 @@ export const GRADE_TIME_V1: Readonly<Record<LutTime, Readonly<GradeParams>>> = {
 export const GRADE_WEATHER: Readonly<Record<LutWeather, Readonly<GradeParams>>> = {
   clear: IDENTITY_GRADE,
   overcast: { gain: [0.98, 1.0, 1.02], lift: [0.002, 0.002, 0.003], gamma: 1, saturation: 0.84, contrast: 1.0 },
-  rain: { gain: [0.95, 0.98, 1.03], lift: [0.002, 0.003, 0.005], gamma: 1, saturation: 0.75, contrast: 1.04 },
+  // Item 16: storm cool and moody (deeper mids, more contrast, steel-blue shade) so a low sun breaking through reads warm.
+  rain: { gain: [0.94, 0.98, 1.05], lift: [0.001, 0.002, 0.004], gamma: 0.95, saturation: 0.8, contrast: 1.1,
+    curve: 0.3, split: 1, shadowTint: [0.92, 0.98, 1.1], highlightTint: [1.04, 1.0, 0.95] },
 }
 
 /**

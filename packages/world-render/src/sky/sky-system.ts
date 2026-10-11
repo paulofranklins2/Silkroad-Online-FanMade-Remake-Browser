@@ -20,6 +20,7 @@
  * colour, 1–3 noise taps for the sun occlusion; a haze change rebuilds the atmosphere in 40 steps of ~1 ms.
  */
 import { Constants, Observable, RawTexture, Vector3, Vector4, type Camera, type Mesh, type Scene } from '@babylonjs/core'
+import { sunBreak } from '../render/atmosphere.ts'
 import { DEFAULT_CLOCK } from '../../../shared/src/world-clock.ts'
 import type { Assets } from '../assets.ts'
 import { approachEnv, evaluateProfile, sampleColor, sampleFloat, saturate, type EnvProfile, type EnvValues, type RGB } from '../environment.ts'
@@ -273,6 +274,7 @@ export class SkySystem {
   private dirty = true
   private timer = 0
   private clock = 0
+  private volFrame = 0
   private lastT = NaN
   private notified = { t: NaN, night: NaN }
   private modern: ModernParts | null = null
@@ -755,7 +757,9 @@ export class SkySystem {
     const lightDir = wSun > 0.5 ? this.sunV : this.moonDirV
     const occ = m.clouds.occlusion(this.camPos.x, this.camPos.y, this.camPos.z, lightDir[0], lightDir[1], lightDir[2], cover, dark)
     const occStrength = q.cloudShadows === 'off' ? 0.75 : q.cloudShadows === 'ground' ? 0.45 : 0
-    const weatherDim = (1 - occ * occStrength) * (1 - 0.8 * w.precipitation)
+    // Item 16: a low sun breaks through under the rain clouds (the gap toward it: sunBreak; the dome opens the same).
+    const brk = sunBreak(this.sunEl, w.precipitation, w.cloudCover, w.cloudDarkness)
+    const weatherDim = (1 - occ * occStrength * (1 - brk)) * (1 - 0.8 * w.precipitation * (1 - 0.7 * brk))
     const keyLdr = (wSun * sunLdr + (1 - wSun) * nightLdr) * weatherDim
     // The sun's colour relative to the noon white point, never redder than GOLDEN_KEY; below the horizon (no
     // transmittance left) the afterglow is GOLDEN_KEY itself.
@@ -1013,8 +1017,11 @@ export class SkySystem {
     u.skyNight!.set(this.airglow[0], this.airglow[1], this.airglow[2], 0.02)
     u.skyCam!.set(this.camPos.x, this.camPos.y, this.camPos.z, this.clock)
     moonFrame(mv, sv, s.moon.age, this.moonU, this.moonV)
-    u.skyMoonU!.set(this.moonU[0], this.moonU[1], this.moonU[2], 0)
-    u.skyMoonV!.set(this.moonV[0], this.moonV[1], this.moonV[2], 0)
+    // Item 16: the cloud march's jitter turns every frame (an 8-frame IGN rotation), so TAA (High/Ultra: the volumetric
+    // tiers) resolves the fixed dotted grain the per-pixel jitter left on thin cloud edges.
+    this.volFrame = (this.volFrame + 1) & 7
+    u.skyMoonU!.set(this.moonU[0], this.moonU[1], this.moonU[2], this.volFrame)
+    u.skyMoonV!.set(this.moonV[0], this.moonV[1], this.moonV[2], sunBreak(this.sunEl, w.precipitation, w.cloudCover, w.cloudDarkness))
     // Overall Pass items 9/10: the volumetric layer (lower, taller and churning in a storm), the lightning's bearing,
     // the snow sky, the sun's halo and the moon's glow (both in the sky's radiance units, before the exposure).
     const dark = Math.max(0, Math.min(1, w.cloudDarkness))
@@ -1121,3 +1128,4 @@ function angleDiff(a: number, b: number): number {
   if (d > Math.PI) d = 2 * Math.PI - d
   return d
 }
+

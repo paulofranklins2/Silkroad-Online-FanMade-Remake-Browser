@@ -210,6 +210,8 @@ export interface ShaftLookInput {
   /** The scene's fog density (1/m; 0 without fog) and where it starts (m): only fog within 100 m adds to the shafts. */
   fogDensity: number
   fogStartM: number
+  /** Item 16: the clouds' gap toward a low sun in rain (sky-system.ts sunBreak, 0..1): beams through the break. */
+  sunBreak?: number
 }
 
 export interface ShaftLook {
@@ -259,7 +261,8 @@ export function shaftLook(i: Readonly<ShaftLookInput>, t: Readonly<ShaftTuning> 
   const w = i.weather
   const mist = clamp01((w.fogMul - 1) / 1.25)
   const humidity = clamp01(w.wetness - w.rain)
-  const weather = (1 - 0.75 * smoothstep(0.55, 0.95, w.cloud)) * (1 - 0.85 * clamp01(w.rain)) * (1 + t.mistGain * mist + t.humidGain * humidity)
+  const brk = clamp01(i.sunBreak ?? 0)
+  const weather = (1 - 0.75 * smoothstep(0.55, 0.95, w.cloud) * (1 - brk)) * (1 - 0.85 * clamp01(w.rain) * (1 - 0.75 * brk)) * (1 + t.mistGain * mist + t.humidGain * humidity)
   const nearFog = Math.max(0, i.fogDensity) * clamp01(1 - Math.max(0, i.fogStartM) / 100)
   const sigma = t.sigma * (1 + t.mistSigma * mist + t.humidSigma * humidity) + t.fogShare * nearFog
   const tint = hazeTint(i.fogColor)

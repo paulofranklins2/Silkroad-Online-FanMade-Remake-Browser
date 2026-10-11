@@ -248,7 +248,7 @@ describe('(f) full cloud cover closes the sky', () => {
   })
 
   it('the dome has the overcast deck in both languages, from cover 0.7 to 0.98, down to the horizon', () => {
-    expect(skyFragmentWGSL).toContain('let deck = smoothstep(0.7, 0.98, uniforms.skyCloud0.z) * smoothstep(-0.02, 0.02, dir.y);')
+    expect(skyFragmentWGSL).toContain('let deck = smoothstep(0.7, 0.98, uniforms.skyCloud0.z) * smoothstep(-0.02, 0.02, dir.y) * (1.0 - brk);') // item 16: open toward a low sun in rain
     expect(skyFragmentGLSL).toContain('float deck = smoothstep(0.7, 0.98, skyCloud0.z) * smoothstep(-0.02, 0.02, dir.y);')
     expect(skyFragmentWGSL).not.toMatch(/\bfloat deck\b/)
     expect(skyFragmentGLSL).not.toMatch(/\blet deck\b/)
