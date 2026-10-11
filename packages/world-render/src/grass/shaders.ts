@@ -47,7 +47,7 @@ export const GRASS_PALETTE_SLOTS = 16
 /** Each blade is at least this wide at its mid-height (px, GRASS_LIFE §3.4 fact-check). */
 export const GRASS_MIN_BLADE_PX = 1
 /** The camera-facing share of each blade's yaw (GRASS_LIFE §2.1, the user's "make them face you"). */
-export const GRASS_FACE_CAMERA = 0.55
+export const GRASS_FACE_CAMERA = 0.35
 /** The player's push radius (m). */
 export const GRASS_PUSH_M = 0.9
 /**
@@ -423,7 +423,7 @@ const GRASS_BODY_WGSL = /* wgsl */ `
   let n2 = grNoise(rxz * 0.021 + vec2f(17.0, 3.0));
   var base = uniforms.grPal[pi * 2].rgb;
   var tip = uniforms.grPal[pi * 2 + 1].rgb;
-  let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
+  let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.06, 1.04, 0.84), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   let r4 = vertexInputs.bladeB.w;
   let cj = fract(crand * 5.31);
   tip = tip * hue * (0.86 + 0.24 * r4) * mix(vec3f(1.04, 1.0, 0.9), vec3f(0.94, 1.02, 1.06), cj);
@@ -451,7 +451,8 @@ const GRASS_BODY_WGSL = /* wgsl */ `
     let H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * uniforms.grLod1.w;
     let grPx = distance(uniforms.scCamera.xyz, root) * uniforms.grView.x;
-    let W = max(uniforms.grStyle.x * (0.7 + 0.6 * r4) * (1.0 - 0.45 * seed) * comp, grPx * uniforms.grView.y * ${MID});
+    let broad = select(1.0, select(0.6, 1.7, cj > 0.8), cj > 0.8 || cj < 0.3);
+    let W = max(uniforms.grStyle.x * (0.7 + 0.6 * r4) * broad * (1.0 - 0.45 * seed) * comp, grPx * uniforms.grView.y * ${MID});
     let fdir = normalize(mix(vec2f(cos(yaw), sin(yaw)), toCam, uniforms.grStyle.y) + vec2f(0.0001));
     let sd = vec2f(-fdir.y, fdir.x);
     let ldir = vec2f(cos(yaw + 1.3), sin(yaw + 1.3));
@@ -466,39 +467,58 @@ const GRASS_BODY_WGSL = /* wgsl */ `
     tip = mix(tip, vec3f(0.74, 0.64, 0.42), seed * 0.8);
     let sheen = gust * 0.3 * bt;
     vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3f(sheen * 0.06);
-    vertexOutputs.vShade = mix(0.64, 1.0, pow(bt, 0.5));
+    vertexOutputs.vShade = mix(0.64, 1.0, pow(bt, 0.5)) * (1.0 - 0.13 * max(side, 0.0));
   } else {
     let drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2f(2.0, 9.0)));
     let fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(uniforms.grStyle.z * 0.7, uniforms.grStyle.z, camD)) * step(0.001, fa.r);
-    let HF = mix(0.38, 0.62, r1) * fl * uniforms.grLod1.w;
-    let ldir = vec2f(cos(yaw), sin(yaw)) * 0.1 * HF;
+    let HF = mix(0.22, 0.46, r1) * fl * uniforms.grLod1.w;
+    let ldir = vec2f(cos(yaw), sin(yaw)) * 0.12 * HF;
     let top = root + vec3f(ldir.x, HF, ldir.y);
-    let fcol = floor(fract(grNoise(rxz * 0.05 + vec2f(7.0, 1.0)) * 3.0 + vertexInputs.bladeB.w * 0.35) * 5.0);
-    var petal = vec3f(0.92, 0.91, 0.84);
-    if (fcol > 3.5) {
-      petal = vec3f(0.80, 0.30, 0.22);
-    } else if (fcol > 2.5) {
-      petal = vec3f(0.90, 0.62, 0.70);
-    } else if (fcol > 1.5) {
-      petal = vec3f(0.62, 0.52, 0.80);
-    } else if (fcol > 0.5) {
-      petal = vec3f(0.94, 0.80, 0.32);
-    }
+    let vr = grNoise(rxz * 0.05 + vec2f(7.0, 1.0)) + (vertexInputs.bladeB.w - 0.5) * 0.3;
     if (kind < 1.5) {
-      let n = normalize(vec3f(toCam.x, 1.4, toCam.y));
+      let sp = round((kind - 1.0) * 10.0);
+      let pt = tier;
+      var petal = select(vec3f(0.93, 0.92, 0.86), vec3f(0.93, 0.80, 0.84), vr > 0.7);
+      var eye = vec3f(0.95, 0.74, 0.18);
+      var R = mix(0.035, 0.05, vertexInputs.bladeB.z);
+      var cup = 0.15;
+      if (sp > 1.5) {
+        petal = select(vec3f(0.80, 0.56, 0.76), vec3f(0.46, 0.60, 0.92), vr > 0.5);
+        eye = vec3f(0.96, 0.92, 0.62);
+        R = mix(0.04, 0.055, vertexInputs.bladeB.z);
+        cup = 0.3;
+      } else if (sp > 0.5) {
+        petal = select(vec3f(0.95, 0.80, 0.24), vec3f(0.86, 0.30, 0.17), vr > 0.78);
+        eye = vec3f(0.62, 0.62, 0.22);
+        R = mix(0.026, 0.036, vertexInputs.bladeB.z);
+        cup = 0.75;
+      }
+      R = R * fl;
+      let ha = yaw * 1.7;
+      let hx = side * cos(ha) - bt * sin(ha);
+      let hz = side * sin(ha) + bt * cos(ha);
+      let tilt = vec2f(cos(yaw * 2.3), sin(yaw * 2.3)) * 0.35 * vertexInputs.bladeB.z + toCam * 0.2;
+      let n = normalize(vec3f(tilt.x, 1.0, tilt.y));
       let u = normalize(cross(n, vec3f(0.3, 0.0, 1.0)));
       let v = cross(n, u);
-      let R = mix(0.05, 0.085, vertexInputs.bladeB.z) * fl;
-      p = top + (u * side + v * bt) * R;
-      let centre = step(length(vec2f(side, bt)), 0.01);
-      vertexOutputs.vCol = mix(petal, vec3f(0.95, 0.75, 0.15), centre);
-      vertexOutputs.vShade = 1.0;
-    } else {
-      let w = 0.008 * (1.0 - bt) * side * fl;
+      p = top + (u * hx + v * hz + n * (cup * (hx * hx + hz * hz))) * R;
+      vertexOutputs.vCol = mix(eye, petal, smoothstep(0.2, 0.45, pt)) * mix(0.88, 1.04, pt);
+      vertexOutputs.vShade = mix(0.85, 1.0, pt);
+    } else if (kind < 2.5) {
+      let w = 0.006 * (1.0 - bt) * side * fl;
       let sd = vec2f(-toCam.y, toCam.x);
       p = mix(root, top, bt) + vec3f(sd.x * w, 0.0, sd.y * w);
       vertexOutputs.vCol = mix(base, tip * 0.8, bt);
-      vertexOutputs.vShade = mix(0.55, 0.9, bt);
+      vertexOutputs.vShade = mix(0.6, 0.9, bt);
+    } else {
+      let la = yaw + 1.1 + (kind - 3.0) * 9.6;
+      let ld = vec2f(cos(la), sin(la));
+      let pd = vec2f(-ld.y, ld.x);
+      let L = mix(0.08, 0.12, vertexInputs.bladeB.z) * fl;
+      let lw = side * 0.022 * fl;
+      p = root + vec3f(ld.x * bt * L * 0.85 + pd.x * lw, bt * L * 0.55 - bt * bt * L * 0.25, ld.y * bt * L * 0.85 + pd.y * lw);
+      vertexOutputs.vCol = mix(base, tip * 0.85, bt);
+      vertexOutputs.vShade = mix(0.6, 0.95, bt) * (1.0 - 0.1 * max(side, 0.0));
     }
   }
   wp = p;
@@ -540,7 +560,7 @@ const GRASS_BODY_GLSL = /* glsl */ `
   float n2 = grNoise(rxz * 0.021 + vec2(17.0, 3.0));
   vec3 base = grPal[pi * 2].rgb;
   vec3 tip = grPal[pi * 2 + 1].rgb;
-  vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
+  vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.06, 1.04, 0.84), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   float r4 = bladeB.w;
   float cj = fract(crand * 5.31);
   tip *= hue * (0.86 + 0.24 * r4) * mix(vec3(1.04, 1.0, 0.9), vec3(0.94, 1.02, 1.06), cj);
@@ -568,7 +588,8 @@ const GRASS_BODY_GLSL = /* glsl */ `
     float H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * grLod1.w;
     float grPx = distance(scCamera.xyz, root) * grView.x;
-    float W = max(grStyle.x * (0.7 + 0.6 * r4) * (1.0 - 0.45 * seed) * comp, grPx * grView.y * ${MID});
+    float broad = cj > 0.8 ? 1.7 : cj < 0.3 ? 0.6 : 1.0;
+    float W = max(grStyle.x * (0.7 + 0.6 * r4) * broad * (1.0 - 0.45 * seed) * comp, grPx * grView.y * ${MID});
     vec2 fdir = normalize(mix(vec2(cos(yaw), sin(yaw)), toCam, grStyle.y) + vec2(0.0001));
     vec2 sd = vec2(-fdir.y, fdir.x);
     vec2 ldir = vec2(cos(yaw + 1.3), sin(yaw + 1.3));
@@ -583,30 +604,58 @@ const GRASS_BODY_GLSL = /* glsl */ `
     tip = mix(tip, vec3(0.74, 0.64, 0.42), seed * 0.8);
     float sheen = gust * 0.3 * bt;
     vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3(sheen * 0.06);
-    vShade = mix(0.64, 1.0, pow(bt, 0.5));
+    vShade = mix(0.64, 1.0, pow(bt, 0.5)) * (1.0 - 0.13 * max(side, 0.0));
   } else {
     float drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2(2.0, 9.0)));
     float fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(grStyle.z * 0.7, grStyle.z, camD)) * step(0.001, fa.r);
-    float HF = mix(0.38, 0.62, r1) * fl * grLod1.w;
-    vec2 ldir = vec2(cos(yaw), sin(yaw)) * 0.1 * HF;
+    float HF = mix(0.22, 0.46, r1) * fl * grLod1.w;
+    vec2 ldir = vec2(cos(yaw), sin(yaw)) * 0.12 * HF;
     vec3 top = root + vec3(ldir.x, HF, ldir.y);
-    float fcol = floor(fract(grNoise(rxz * 0.05 + vec2(7.0, 1.0)) * 3.0 + bladeB.w * 0.35) * 5.0);
-    vec3 petal = fcol > 3.5 ? vec3(0.80, 0.30, 0.22) : fcol > 2.5 ? vec3(0.90, 0.62, 0.70) : fcol > 1.5 ? vec3(0.62, 0.52, 0.80) : fcol > 0.5 ? vec3(0.94, 0.80, 0.32) : vec3(0.92, 0.91, 0.84);
+    float vr = grNoise(rxz * 0.05 + vec2(7.0, 1.0)) + (bladeB.w - 0.5) * 0.3;
     if (kind < 1.5) {
-      vec3 n = normalize(vec3(toCam.x, 1.4, toCam.y));
+      float sp = floor((kind - 1.0) * 10.0 + 0.5);
+      float pt = tier;
+      vec3 petal = vr > 0.7 ? vec3(0.93, 0.80, 0.84) : vec3(0.93, 0.92, 0.86);
+      vec3 eye = vec3(0.95, 0.74, 0.18);
+      float R = mix(0.035, 0.05, bladeB.z);
+      float cup = 0.15;
+      if (sp > 1.5) {
+        petal = vr > 0.5 ? vec3(0.46, 0.60, 0.92) : vec3(0.80, 0.56, 0.76);
+        eye = vec3(0.96, 0.92, 0.62);
+        R = mix(0.04, 0.055, bladeB.z);
+        cup = 0.3;
+      } else if (sp > 0.5) {
+        petal = vr > 0.78 ? vec3(0.86, 0.30, 0.17) : vec3(0.95, 0.80, 0.24);
+        eye = vec3(0.62, 0.62, 0.22);
+        R = mix(0.026, 0.036, bladeB.z);
+        cup = 0.75;
+      }
+      R *= fl;
+      float ha = yaw * 1.7;
+      float hx = side * cos(ha) - bt * sin(ha);
+      float hz = side * sin(ha) + bt * cos(ha);
+      vec2 tilt = vec2(cos(yaw * 2.3), sin(yaw * 2.3)) * 0.35 * bladeB.z + toCam * 0.2;
+      vec3 n = normalize(vec3(tilt.x, 1.0, tilt.y));
       vec3 u = normalize(cross(n, vec3(0.3, 0.0, 1.0)));
       vec3 v = cross(n, u);
-      float R = mix(0.05, 0.085, bladeB.z) * fl;
-      p = top + (u * side + v * bt) * R;
-      float centre = step(length(vec2(side, bt)), 0.01);
-      vCol = mix(petal, vec3(0.95, 0.75, 0.15), centre);
-      vShade = 1.0;
-    } else {
-      float w = 0.008 * (1.0 - bt) * side * fl;
+      p = top + (u * hx + v * hz + n * (cup * (hx * hx + hz * hz))) * R;
+      vCol = mix(eye, petal, smoothstep(0.2, 0.45, pt)) * mix(0.88, 1.04, pt);
+      vShade = mix(0.85, 1.0, pt);
+    } else if (kind < 2.5) {
+      float w = 0.006 * (1.0 - bt) * side * fl;
       vec2 sd = vec2(-toCam.y, toCam.x);
       p = mix(root, top, bt) + vec3(sd.x * w, 0.0, sd.y * w);
       vCol = mix(base, tip * 0.8, bt);
-      vShade = mix(0.55, 0.9, bt);
+      vShade = mix(0.6, 0.9, bt);
+    } else {
+      float la = yaw + 1.1 + (kind - 3.0) * 9.6;
+      vec2 ld = vec2(cos(la), sin(la));
+      vec2 pd = vec2(-ld.y, ld.x);
+      float L = mix(0.08, 0.12, bladeB.z) * fl;
+      float lw = side * 0.022 * fl;
+      p = root + vec3(ld.x * bt * L * 0.85 + pd.x * lw, bt * L * 0.55 - bt * bt * L * 0.25, ld.y * bt * L * 0.85 + pd.y * lw);
+      vCol = mix(base, tip * 0.85, bt);
+      vShade = mix(0.6, 0.95, bt) * (1.0 - 0.1 * max(side, 0.0));
     }
   }
   wp = p;

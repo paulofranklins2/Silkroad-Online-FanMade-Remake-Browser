@@ -91,7 +91,17 @@ function adjust(c: Rgb, k: number): [number, number, number] {
 /** The shader's (base, tip) of a palette (display sRGB 0..1). */
 export function shaderPalette(base: Rgb, tip: Rgb): { base: [number, number, number]; tip: [number, number, number] } {
   const mixed: Rgb = [base[0] * 0.7 + tip[0] * 0.3, base[1] * 0.7 + tip[1] * 0.3, base[2] * 0.7 + tip[2] * 0.3]
-  return { base: adjust(mixed, GRASS_PALETTE_BRIGHTNESS), tip: adjust(tip, GRASS_PALETTE_BRIGHTNESS) }
+  return { base: fresh(adjust(mixed, GRASS_PALETTE_BRIGHTNESS)), tip: fresh(adjust(tip, GRASS_PALETTE_BRIGHTNESS)) }
+}
+
+/**
+ * Overall Pass (grass): the fresh temperate grade: a little less red and a touch of blue, so the fields read as a cool
+ * natural green instead of yellow-green (the dry patches keep their straw in the shader).
+ */
+export const GRASS_FRESH_GRADE: readonly [number, number, number, number] = [0.86, 1, 1, 0.035]
+function fresh(c: [number, number, number]): [number, number, number] {
+  const [r, g, b, add] = GRASS_FRESH_GRADE
+  return [c[0] * r, c[1] * g, Math.min(1, c[2] * b + add)]
 }
 
 /** What the bake and the material need from the manifest's tiles. */

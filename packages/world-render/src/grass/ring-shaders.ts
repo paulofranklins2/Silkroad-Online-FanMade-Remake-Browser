@@ -108,7 +108,7 @@ const RING_BODY_WGSL = /* wgsl */ `
   let n2 = grNoise(rxz * 0.021 + vec2f(17.0, 3.0));
   var base = uniforms.grPal[pi * 2].rgb;
   var tip = uniforms.grPal[pi * 2 + 1].rgb;
-  let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
+  let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.06, 1.04, 0.84), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   tip = tip * hue * (0.92 + 0.16 * vertexInputs.bladeB.w);
   base = base * mix(vec3f(1.0), hue, 0.5);
   tip = mix(tip, vec3f(0.70, 0.62, 0.36), grDry(rxz) * 0.6);
@@ -135,7 +135,7 @@ const RING_BODY_WGSL = /* wgsl */ `
     let bt = vertexInputs.position.y;
     let spread = 0.1 * riGrow * (0.7 + 0.6 * vertexInputs.bladeB.z);
     let yaw = vertexInputs.bladeB.z * 6.2831853;
-    let lean = (sd * (k * 0.4) + vec2f(cos(yaw), sin(yaw)) * 0.12) * (H * bt * bt);
+    let lean = (sd * (k * 0.14) + vec2f(cos(yaw + k * 2.1), sin(yaw + k * 2.1)) * 0.16) * (H * bt * bt);
     let o = k * spread + W * (1.0 - bt) * vertexInputs.position.x;
     p = vec3f(root.x + sd.x * o + lean.x, root.y + bt * H, root.z + sd.y * o + lean.y);
     vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8));
@@ -143,7 +143,7 @@ const RING_BODY_WGSL = /* wgsl */ `
   } else {
     let dIn = mix(uniforms.grRingLod2.x, uniforms.grRingLod2.y, fract(crand * 9.1));
     let dOut = mix(uniforms.grRingLod2.z, uniforms.grRingLod2.w, fract(crand * 5.3));
-    let fl = step(crand, fa.g * 1.4) * step(0.001, dens) * smoothstep(dIn - 3.0, dIn, camD) * (1.0 - smoothstep(dOut - 10.0, dOut, camD)) * riThin;
+    let fl = step(crand, fa.g * 1.5 * smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2f(2.0, 9.0)))) * step(0.001, dens) * smoothstep(dIn - 3.0, dIn, camD) * (1.0 - smoothstep(dOut - 10.0, dOut, camD)) * riThin;
     let HF = mix(0.36, 0.58, r1) * mix(0.55, 1.0, dens) * uniforms.grRingStyle.w;
     let top = root + vec3f(0.0, HF, 0.0);
     let n = normalize(vec3f(toCam.x, 1.4, toCam.y));
@@ -152,15 +152,15 @@ const RING_BODY_WGSL = /* wgsl */ `
     let R = max(mix(0.06, 0.09, vertexInputs.bladeB.z), riPx * 0.8) * fl;
     p = top + (u * vertexInputs.position.x + v * vertexInputs.position.y) * R;
     let fcol = floor(fract(vertexInputs.bladeB.w * 7.3) * 5.0);
-    var petal = vec3f(0.95, 0.93, 0.86);
+    var petal = vec3f(0.93, 0.92, 0.86);
     if (fcol > 3.5) {
-      petal = vec3f(0.86, 0.22, 0.16);
+      petal = vec3f(0.80, 0.30, 0.22);
     } else if (fcol > 2.5) {
-      petal = vec3f(0.95, 0.55, 0.66);
+      petal = vec3f(0.90, 0.62, 0.70);
     } else if (fcol > 1.5) {
-      petal = vec3f(0.66, 0.50, 0.86);
+      petal = vec3f(0.46, 0.60, 0.92);
     } else if (fcol > 0.5) {
-      petal = vec3f(0.98, 0.80, 0.22);
+      petal = vec3f(0.95, 0.80, 0.24);
     }
     vertexOutputs.vCol = petal;
     vertexOutputs.vShade = 1.0;
@@ -210,7 +210,7 @@ const RING_BODY_GLSL = /* glsl */ `
   float n2 = grNoise(rxz * 0.021 + vec2(17.0, 3.0));
   vec3 base = grPal[pi * 2].rgb;
   vec3 tip = grPal[pi * 2 + 1].rgb;
-  vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
+  vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.06, 1.04, 0.84), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   tip *= hue * (0.92 + 0.16 * bladeB.w);
   base *= mix(vec3(1.0), hue, 0.5);
   tip = mix(tip, vec3(0.70, 0.62, 0.36), grDry(rxz) * 0.6);
@@ -237,7 +237,7 @@ const RING_BODY_GLSL = /* glsl */ `
     float bt = position.y;
     float spread = 0.1 * riGrow * (0.7 + 0.6 * bladeB.z);
     float yaw = bladeB.z * 6.2831853;
-    vec2 lean = (sd * (k * 0.4) + vec2(cos(yaw), sin(yaw)) * 0.12) * (H * bt * bt);
+    vec2 lean = (sd * (k * 0.14) + vec2(cos(yaw + k * 2.1), sin(yaw + k * 2.1)) * 0.16) * (H * bt * bt);
     float o = k * spread + W * (1.0 - bt) * position.x;
     p = vec3(root.x + sd.x * o + lean.x, root.y + bt * H, root.z + sd.y * o + lean.y);
     vCol = mix(base, tip, pow(bt, 0.8));
@@ -245,7 +245,7 @@ const RING_BODY_GLSL = /* glsl */ `
   } else {
     float dIn = mix(grRingLod2.x, grRingLod2.y, fract(crand * 9.1));
     float dOut = mix(grRingLod2.z, grRingLod2.w, fract(crand * 5.3));
-    float fl = step(crand, fa.g * 1.4) * step(0.001, dens) * smoothstep(dIn - 3.0, dIn, camD) * (1.0 - smoothstep(dOut - 10.0, dOut, camD)) * riThin;
+    float fl = step(crand, fa.g * 1.5 * smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2(2.0, 9.0)))) * step(0.001, dens) * smoothstep(dIn - 3.0, dIn, camD) * (1.0 - smoothstep(dOut - 10.0, dOut, camD)) * riThin;
     float HF = mix(0.36, 0.58, r1) * mix(0.55, 1.0, dens) * grRingStyle.w;
     vec3 top = root + vec3(0.0, HF, 0.0);
     vec3 n = normalize(vec3(toCam.x, 1.4, toCam.y));
@@ -254,7 +254,7 @@ const RING_BODY_GLSL = /* glsl */ `
     float R = max(mix(0.06, 0.09, bladeB.z), riPx * 0.8) * fl;
     p = top + (u * position.x + v * position.y) * R;
     float fcol = floor(fract(bladeB.w * 7.3) * 5.0);
-    vCol = fcol > 3.5 ? vec3(0.86, 0.22, 0.16) : fcol > 2.5 ? vec3(0.95, 0.55, 0.66) : fcol > 1.5 ? vec3(0.66, 0.50, 0.86) : fcol > 0.5 ? vec3(0.98, 0.80, 0.22) : vec3(0.95, 0.93, 0.86);
+    vCol = fcol > 3.5 ? vec3(0.80, 0.30, 0.22) : fcol > 2.5 ? vec3(0.90, 0.62, 0.70) : fcol > 1.5 ? vec3(0.46, 0.60, 0.92) : fcol > 0.5 ? vec3(0.95, 0.80, 0.24) : vec3(0.93, 0.92, 0.86);
     vShade = 1.0;
   }
   wp = p;

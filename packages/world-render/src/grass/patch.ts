@@ -40,6 +40,72 @@ export interface GrassPatch {
 /** Share of the clumps that carry a flower. */
 export const FLOWER_SHARE = 0.12
 
+/**
+ * Overall Pass (grass): the wildflower species of the field: 0 a daisy (ten slim petals round a yellow disc), 1 a cup
+ * flower (five broad rounded petals lifted into a cup: buttercup, poppy), 2 a cluster of three tiny five-petal blossoms
+ * (forget-me-not, clover). A head vertex is (x, y in the head's plane over its radius, kind 1 + 0.1 × species) with
+ * bladeA.w = its place along the petal (0 the centre, 1 the petal tip); the stem is kind 2, the two leaves kind 3, 3.25.
+ */
+export const FLOWER_SPECIES = 3
+export const FLOWER_LEAF_KINDS: readonly number[] = [3, 3.25]
+
+export interface FlowerHead {
+  /** Vertex (x, y) pairs in the head plane (units of the head radius). */
+  xy: number[]
+  /** Per vertex: 0 at the centre, 1 at a petal tip. */
+  t: number[]
+  idx: number[]
+}
+
+const headCache = new Map<number, FlowerHead>()
+
+/** The head mesh of a species (shared by every flower of it). */
+export function flowerHead(species: number): FlowerHead {
+  const hit = headCache.get(species)
+  if (hit) return hit
+  const xy: number[] = [], t: number[] = [], idx: number[] = []
+  const vert = (x: number, y: number, tt: number) => {
+    xy.push(x, y)
+    t.push(tt)
+    return t.length - 1
+  }
+  /** A disc of `n` sides at (cx, cy), radius r. */
+  const disc = (cx: number, cy: number, r: number, n: number) => {
+    const c = vert(cx, cy, 0)
+    const first = t.length
+    for (let k = 0; k < n; k++) vert(cx + Math.cos((k / n) * Math.PI * 2) * r, cy + Math.sin((k / n) * Math.PI * 2) * r, 0.15)
+    for (let k = 0; k < n; k++) idx.push(c, first + k, first + ((k + 1) % n))
+  }
+  /**
+   * A rounded petal from (cx, cy) along angle `ang`: its base at r0, widest (half width w) at rw, a rounded tip
+   * (two shoulders at rt, half width w × 0.6, then the tip at r1). Five vertices or six (round), a fan from the base.
+   */
+  const petal = (cx: number, cy: number, ang: number, r0: number, rw: number, rt: number, r1: number, w: number) => {
+    const dx = Math.cos(ang), dy = Math.sin(ang), px = -dy, py = dx
+    const at = (r: number, s: number, tt: number) => vert(cx + dx * r + px * s, cy + dy * r + py * s, tt)
+    const b0 = at(r0, 0, 0.3)
+    const l1 = at(rw, -w, 0.65), r1v = at(rw, w, 0.65)
+    const l2 = at(rt, -w * 0.6, 0.9), r2 = at(rt, w * 0.6, 0.9)
+    const tip = at(r1, 0, 1)
+    idx.push(b0, l1, r1v, l1, l2, r1v, r1v, l2, r2, l2, tip, r2)
+  }
+  if (species === 0) {
+    for (let k = 0; k < 10; k++) petal(0, 0, (k / 10) * Math.PI * 2 + 0.1, 0.2, 0.55, 0.85, 1, 0.1)
+    disc(0, 0, 0.3, 7)
+  } else if (species === 1) {
+    for (let k = 0; k < 5; k++) petal(0, 0, (k / 5) * Math.PI * 2, 0.08, 0.5, 0.82, 1, 0.3)
+    disc(0, 0, 0.2, 6)
+  } else {
+    const at: [number, number][] = [[0, 0.5], [0.45, -0.28], [-0.45, -0.28]]
+    for (const [cx, cy] of at) {
+      for (let k = 0; k < 5; k++) petal(cx, cy, (k / 5) * Math.PI * 2 + cx, 0.05, 0.25, 0.38, 0.45, 0.13)
+    }
+  }
+  const head = { xy, t, idx }
+  headCache.set(species, head)
+  return head
+}
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -70,7 +136,7 @@ export function buildPatch(lod: GrassLod, density: GrassDensity, cellM = GRASS_C
         const tier = bl === 0 ? 0 : bl < 3 ? 1 : 2
         // Always six draws per blade: a blade left out of a tier never shifts another's numbers.
         const r1 = rnd(), r2 = rnd(), r3 = rnd(), r4 = rnd()
-        const rr = Math.sqrt(rnd()) * 0.16, th = rnd() * Math.PI * 2
+        const rr = Math.sqrt(rnd()) * 0.26, th = rnd() * Math.PI * 2
         if (tier > 0 && lod === 2) continue
         if (tier > 1 && lod === 1) continue
         const lx = cxp + Math.cos(th) * rr, lz = czp + Math.sin(th) * rr
@@ -108,18 +174,26 @@ export function buildPatch(lod: GrassLod, density: GrassDensity, cellM = GRASS_C
           b.push(r1, r2, r3, r4)
         }
         idx.push(s0, s0 + 1, s0 + 2)
-        const h0 = pos.length / 3
-        pos.push(0, 0, 1)
-        for (let k = 0; k < 10; k++) {
-          const ang = (k / 10) * Math.PI * 2
-          const rad = k % 2 ? 0.45 : 1
-          pos.push(Math.cos(ang) * rad, Math.sin(ang) * rad, 1)
+        // two leaves at the stem's foot (kind 3 and 3.25: the shader turns them apart)
+        for (const lk of FLOWER_LEAF_KINDS) {
+          const l0 = pos.length / 3
+          pos.push(0, 0, lk, -1, 0.45, lk, 1, 0.45, lk, 0, 1, lk)
+          for (let k = 0; k < 4; k++) {
+            a.push(cxp, czp, fr, 0)
+            b.push(r1, r2, r3, r4)
+          }
+          idx.push(l0, l0 + 1, l0 + 2, l0 + 1, l0 + 3, l0 + 2)
         }
-        for (let k = 0; k < 11; k++) {
-          a.push(cxp, czp, fr, 0)
+        // the head: one of the wildflower species (flowerHead), petals as separate rounded shapes around a centre
+        const species = Math.floor((fr * 7.31) % 1 * FLOWER_SPECIES)
+        const head = flowerHead(species)
+        const h0 = pos.length / 3
+        for (let k = 0; k < head.xy.length / 2; k++) {
+          pos.push(head.xy[k * 2]!, head.xy[k * 2 + 1]!, 1 + 0.1 * species)
+          a.push(cxp, czp, fr, head.t[k]!)
           b.push(r1, r2, r3, r4)
         }
-        for (let k = 0; k < 10; k++) idx.push(h0, h0 + 1 + k, h0 + 1 + ((k + 1) % 10))
+        for (const i of head.idx) idx.push(h0 + i)
         flowers++
       }
     }

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { GRASS_LEVELS } from '../src/grass/cull.ts'
-import { bladesPerM2, buildPatch, type GrassLod } from '../src/grass/patch.ts'
+import { FLOWER_SPECIES, bladesPerM2, buildPatch, flowerHead, type GrassLod } from '../src/grass/patch.ts'
 import { GRASS_CELL_M, grassApplyVariant, grassCellVariant } from '../src/grass/shaders.ts'
 
 const MEDIUM = GRASS_LEVELS.medium!.density
@@ -19,8 +19,8 @@ describe('the patch meshes (GRASS_LIFE §3.3)', () => {
       const p = buildPatch(l, d)
       return [p.vertices, p.triangles]
     })
-    expect(counts(MEDIUM)).toEqual([[21_252, 15_246], [8_184, 5_082], [1_452, 484]])
-    expect(counts(HIGH)).toEqual([[34_272, 24_562], [11_288, 6_986], [2_028, 676]])
+    expect(counts(MEDIUM)).toEqual([[25_154, 17_653], [12_086, 7_489], [1_452, 484]])
+    expect(counts(HIGH)).toEqual([[39_302, 27_677], [16_318, 10_101], [2_028, 676]])
   })
 
   it('45 blades per m² on Medium, 74 on High; Grass: Low keeps Medium\'s density', () => {
@@ -46,12 +46,12 @@ describe('the patch meshes (GRASS_LIFE §3.3)', () => {
         }
         expect([...tiers].sort()).toEqual([[0, 1, 2], [0, 1], [0]][lod])
         expect(bladeVerts).toBe(p.blades * [7, 5, 3][lod]!)
-        // Every blade root lies in the cell, within 16 cm of a clump centre inside it.
+        // Every blade root lies in the cell, within 26 cm of a clump centre inside it (the cull's margin is 60 cm).
         for (let v = 0; v < p.vertices; v++) {
-          expect(p.bladeA[v * 4]).toBeGreaterThan(-0.2)
-          expect(p.bladeA[v * 4]).toBeLessThan(GRASS_CELL_M + 0.2)
-          expect(p.bladeA[v * 4 + 1]).toBeGreaterThan(-0.2)
-          expect(p.bladeA[v * 4 + 1]).toBeLessThan(GRASS_CELL_M + 0.2)
+          expect(p.bladeA[v * 4]).toBeGreaterThan(-0.3)
+          expect(p.bladeA[v * 4]).toBeLessThan(GRASS_CELL_M + 0.3)
+          expect(p.bladeA[v * 4 + 1]).toBeGreaterThan(-0.3)
+          expect(p.bladeA[v * 4 + 1]).toBeLessThan(GRASS_CELL_M + 0.3)
         }
       }
     }
@@ -63,11 +63,25 @@ describe('the patch meshes (GRASS_LIFE §3.3)', () => {
     expect(mid.flowers).toBe(66)
     expect(far.flowers).toBe(0)
     expect(buildPatch(0, HIGH).flowers).toBe(82)
-    // A flower is a stem (1 triangle, kind 2) and a 10-point star head (10 triangles, kind 1).
+    // A flower is a stem (1 triangle, kind 2), two leaves (kind 3, 3.25: 4 vertices each) and a wildflower head of
+    // separate rounded petals (kind 1 + 0.1 × species: daisy, cup flower, blossom cluster), never a star outline.
     const kinds = new Map<number, number>()
     for (let v = 0; v < near.vertices; v++) kinds.set(near.positions[v * 3 + 2]!, (kinds.get(near.positions[v * 3 + 2]!) ?? 0) + 1)
-    expect(kinds.get(1)).toBe(66 * 11)
     expect(kinds.get(2)).toBe(66 * 3)
+    expect(kinds.get(3)).toBe(66 * 4)
+    expect(kinds.get(3.25)).toBe(66 * 4)
+    let heads = 0
+    for (let sp = 0; sp < FLOWER_SPECIES; sp++) {
+      const n = kinds.get(Math.fround(1 + 0.1 * sp)) ?? 0
+      expect(n % (flowerHead(sp).t.length)).toBe(0)
+      expect(n).toBeGreaterThan(0)
+      heads += n / flowerHead(sp).t.length
+    }
+    expect(heads).toBe(66)
+    // petals are separate shapes: the daisy has 10, the cup flower 5, the cluster 3 × 5 (6 vertices each) round a disc
+    expect(flowerHead(0).t.length).toBe(10 * 6 + 8)
+    expect(flowerHead(1).t.length).toBe(5 * 6 + 7)
+    expect(flowerHead(2).t.length).toBe(15 * 6)
   })
 
   it('is deterministic', () => {
