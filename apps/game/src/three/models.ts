@@ -3608,8 +3608,10 @@ export class CharacterActor {
     for (const m of this.outfitStash.keys()) m.dispose(false, false)
     this.outfitStash.clear()
     for (const s of this.skeleton ? [this.skeleton] : []) s.dispose()
-    for (const n of this.nodes) n.dispose(false, false)
-    this.root.dispose()
+    // (a node a parent's dispose already took is not disposed again: Babylon has no guard and ran the whole teardown —
+    // scene lists, observers, children — a second time for most of an actor's nodes, round 7)
+    for (const n of this.nodes) if (!n.isDisposed()) n.dispose(false, false)
+    if (!this.root.isDisposed()) this.root.dispose()
     if (c && !c.disposed) c.dispose()
   }
 }
