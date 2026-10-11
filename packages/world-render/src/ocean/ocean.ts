@@ -45,6 +45,7 @@ import type { ShoreFactory, ShoreFrame, ShorePart } from './shore-seam.ts'
 import { GPU_TILES_M, WORKER_TILES_M, cascadesFor, type Cascade } from './spectrum.ts'
 import { WorkerTile } from './tile.ts'
 import { DEFAULT_SEA, SeaWeather, type SeaConfig } from './weather.ts'
+import { WaterSkyReflection } from './sky-reflection.ts'
 
 /** The grazing sky term's strength (ocean-plugin.ts `sroOcHorizon`; 0 = Babylon's cube reflection only). */
 const GRAZING_SKY = 1
@@ -115,12 +116,15 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
   private readonly lat: CdlodSettings = { originX: 0, originZ: 0, levels: 1, seaLevelM: 0 }
   private readonly waterTest = (x: number, z: number, size: number): boolean => !!this.field?.nodeHasWater(x, z, size)
   private shoreFrame: ShoreFrame | null = null
+  /** AAA water: the sky reflection cube the sea, the rivers and the ponds mirror (sky-reflection.ts). */
+  readonly skyReflection: WaterSkyReflection
   readonly stats: OceanStats = { nodes: 0, visible: false, path: null, waves: null, cutM: 0, hs: 0, selectMs: 0 }
   /** Resolves when the field is loaded (or failed: null). */
   readonly loaded: Promise<CoastField | null>
 
   constructor(readonly host: OceanHost, readonly opts: OceanOptions = {}) {
     this.sea = new SeaWeather({ ...DEFAULT_SEA, ...opts.sea }, 4)
+    this.skyReflection = new WaterSkyReflection(host.scene)
     const w = host.world
     this.loaded = loadCoastField(w.manifest, w.assets).then(
       f => {
@@ -156,6 +160,7 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
     // World.setQuality runs on every graphics apply: only a different row rebuilds the wave sources.
     if (sameRow(q, this.quality)) return
     this.quality = q
+    this.skyReflection.setQuality(q?.skyProbe ?? null)
     // The wave source and grid follow at the next update (the path may change at the same time).
     this.dropWaves()
   }
@@ -224,6 +229,14 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
     const frame = w.weatherState
     const rebuilt = this.sea.update(frame, dt)
     this.ensureWaves(q, path)
+    // AAA water: the sky cube (PBR path, the modern dome only), mirrored by the sea and the retail water alike.
+    const sky = w.sky
+    const dome = path === 'pbr' && sky.style === 'modern' && sky.visible ? sky.mesh : null
+    if (this.skyReflection.update(camera, dome)) {
+      const cube = this.skyReflection.texture
+      this.pbr.setSwitches({ skyCube: cube })
+      w.water.setSkyReflection?.(cube, this.skyReflection.levels)
+    }
     if (rebuilt || (path === 'classic' && !this.gerstner.length)) {
       this.gerstner = gerstnerSet(this.sea.params)
       this.classic.setWaves(this.gerstner)
@@ -267,6 +280,9 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
     const ready = path === 'pbr' ? this.bindPbr(f, q, camera, t, hs) : this.bindClassic(f, camera, t)
     mesh.isVisible = active && ready
     this.stats.visible = mesh.isVisible
+    // AAA water: SSR's sky fallback and the High preset's water gate (render/post.ts).
+    w.render.waterSky = path === 'pbr' ? this.skyReflection.texture : null
+    w.render.waterInView = path === 'pbr' && ((mesh.isVisible && cam.y - f.seaLevelM < WATER_VIEW_M) || retailWaterNear(w.water.meshes, cam, WATER_VIEW_M))
     if (mesh.isVisible) this.fitBounds(count, f.seaLevelM)
     if (active && this.shore) {
       try {
@@ -292,6 +308,7 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
     if (this.disposed) return
     this.disposed = true
     this.dropWaves()
+    this.skyReflection.dispose()
     this.shore?.dispose()
     this.shore = null
     this.mesh?.dispose(false, false)
@@ -476,7 +493,15 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
       s.horizon.set(0, 0, 0, 0)
       s.zenith.set(0, 0, 0, 0)
     }
-    s.setSwitches({ ripple: (w.weather.rippleTexture as BaseTexture | null) ?? null })
+    s.setSwitches({ ripple: (w.weather.rippleTexture as BaseTexture | null) ?? null, glint: q.glint ?? false })
+    // AAA water: the sky cube's levels, SSR on the sea where the preset marches it, the glitter's light.
+    const rq = w.render.quality
+    s.skyP.set(this.skyReflection.levels, q.skyProbe && q.skyProbe.size >= 256 ? 1 : 0.5, rq.ssr !== 'off' ? 1 : 0, 1)
+    s.sunC.set(k.color[0] * k.intensity, k.color[1] * k.intensity, k.color[2] * k.intensity, 0)
+    // …and the same for the retail water (rivers, lakes, ponds: pbr/water-plugin.ts).
+    water.s.set(k.dir.x, k.dir.y, k.dir.z, 0)
+    water.sc.copyFrom(s.sunC)
+    water.d.set(this.skyReflection.levels, s.skyP.y, s.skyP.z, 1)
     if (s.ready !== this.pbrReady) {
       this.pbrReady = s.ready
       s.refresh()
@@ -525,12 +550,25 @@ export class SroOcean implements OceanPart, OceanWaveQuery {
 }
 
 /** Two preset rows are the same (shallow: every field a primitive but the reflection block). */
+/** AAA water: water within this of the camera opens High's SSR (m). */
+const WATER_VIEW_M = 150
+
+/** Whether a retail water mesh (enabled, visible) lies within `range` of the camera (its bounding sphere). */
+function retailWaterNear(meshes: readonly AbstractMesh[], cam: Vector3, range: number): boolean {
+  for (const m of meshes) {
+    if (!m.isEnabled() || !m.isVisible) continue
+    const s = m.getBoundingInfo().boundingSphere
+    if (Vector3.Distance(s.centerWorld, cam) - s.radiusWorld < range) return true
+  }
+  return false
+}
+
 function sameRow(a: Readonly<OceanQuality> | null, b: Readonly<OceanQuality> | null): boolean {
   if (a === b) return true
   if (!a || !b) return false
   for (const k of Object.keys(a) as Array<keyof OceanQuality>) {
-    if (k === 'reflection') {
-      if (JSON.stringify(a.reflection) !== JSON.stringify(b.reflection)) return false
+    if (k === 'reflection' || k === 'skyProbe') {
+      if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false
     } else if (a[k] !== b[k]) return false
   }
   return true

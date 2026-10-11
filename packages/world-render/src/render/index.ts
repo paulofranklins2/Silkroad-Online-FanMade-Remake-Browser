@@ -87,6 +87,13 @@ export class WorldRender {
   shadows: RenderPart | null = null
   /** RND-P: the post stack, grade, fog plugin. */
   post: RenderPart | null = null
+  /**
+   * Overall Pass (AAA water), written by the ocean part every frame: the sky reflection cube (ocean/sky-reflection.ts;
+   * SSR's fallback for a missed ray instead of the blurred IBL cube) and whether water is in view near the camera (the
+   * High preset's SSR opens for it as for puddles).
+   */
+  waterSky: BaseTexture | null = null
+  waterInView = false
   /** RND-M: character and object PBR decoration. */
   materials: RenderPart | null = null
   private camera: Camera | null = null

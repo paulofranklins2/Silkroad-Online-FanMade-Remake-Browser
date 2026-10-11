@@ -80,6 +80,13 @@ export interface OceanQuality {
   shore: 'vertex' | 'pixel'
   /** The CDLOD selection stops at the height fog's full-fog distance, and the FFT idles with no node selected (D27). */
   fogCut: boolean
+  /**
+   * Overall Pass (AAA water): the sky reflection cube the sea, rivers and ponds mirror (ocean/sky-reflection.ts: the
+   * modern dome with its clouds; face px, frames between refreshes); absent or null: none (the gradient / IBL fallback).
+   */
+  skyProbe?: { size: number; refreshFrames: number } | null
+  /** Overall Pass (AAA water): the sun's glitter on the sea and the rivers. */
+  glint?: boolean
 }
 
 export interface RenderQuality {
@@ -211,7 +218,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     renderScale: 1,
     ocean: {
       waves: 'worker-fft', cascades: 2, fftSize: 64, tickHz: 20, grid: 16, levels: 8, reflection: { cubeSize: 32, refreshS: 10 }, shadows: false,
-      cloudShadows: 'off', foam: 'v1', shore: 'pixel', fogCut: true,
+      cloudShadows: 'off', foam: 'v1', shore: 'pixel', fogCut: true, skyProbe: { size: 64, refreshFrames: 30 }, glint: true,
     },
   },
   high: {
@@ -243,7 +250,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     renderScale: 1,
     ocean: {
       waves: 'gpu-fft', cascades: 4, fftSize: 128, tickHz: 0, grid: 32, levels: 8, reflection: { cubeSize: 64, refreshS: 5 }, shadows: true,
-      cloudShadows: 'ground', foam: 'whitecaps', shore: 'pixel', fogCut: true,
+      cloudShadows: 'ground', foam: 'whitecaps', shore: 'pixel', fogCut: true, skyProbe: { size: 128, refreshFrames: 8 }, glint: true,
     },
   },
   ultra: {
@@ -271,7 +278,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     renderScale: 1,
     ocean: {
       waves: 'gpu-fft', cascades: 4, fftSize: 256, tickHz: 0, grid: 64, levels: 8, reflection: { cubeSize: 64, refreshS: 2 }, shadows: true,
-      cloudShadows: 'all', foam: 'whitecaps', shore: 'pixel', fogCut: true,
+      cloudShadows: 'all', foam: 'whitecaps', shore: 'pixel', fogCut: true, skyProbe: { size: 256, refreshFrames: 4 }, glint: true,
     },
   },
 }

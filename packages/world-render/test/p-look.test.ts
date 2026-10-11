@@ -177,7 +177,7 @@ describe('P-LOOK (2): the open sea reads at noon (ocean)', () => {
       expect(f.CUSTOM_FRAGMENT_MAIN_BEGIN).toContain('sroOcFr =')
       const b = f.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION!
       expect(b).toContain('alpha = sroB1;')
-      expect(b).toContain('finalRadianceScaled = finalRadianceScaled * sroKr;')
+      expect(b).toContain('finalRadianceScaled = finalRadianceScaled * (sroKr * sroOcEnvK);')
       expect(b).toContain('finalDiffuse = finalDiffuse * sroKd;')
     }
     const s = new OceanPbrState()

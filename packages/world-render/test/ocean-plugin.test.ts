@@ -173,16 +173,16 @@ describe('the ocean material (NullEngine)', () => {
 })
 
 describe('the water colour (COAST §8.6)', () => {
-  it('alpha = 1 − mean transmittance: clear in the shallows, opaque in deep water; the deep albedo is blue-green', () => {
+  it('alpha = 1 − the smallest transmittance: clear in the shallows, opaque in deep water; the deep albedo is blue-green', () => {
     expect(waterColour(0).alpha).toBe(0)
-    expect(waterColour(1).alpha).toBeLessThan(0.3)
+    expect(waterColour(1).alpha).toBeLessThan(0.35)
     expect(waterColour(60).alpha).toBeGreaterThan(0.95)
     const d = deepAlbedo()
     expect(d[2]).toBeGreaterThan(d[1])
     expect(d[1]).toBeGreaterThan(d[0])
-    // In shallow water the albedo leans to the red less than in deep water (the per-channel tint).
+    // AAA water: in shallow water the sand seen through the column tints the albedo green (turquoise).
     const s = waterColour(2).albedo, deep = waterColour(40).albedo
-    expect(s[0] / s[2]).toBeGreaterThan(deep[0] / deep[2])
+    expect(s[1] / s[2]).toBeGreaterThan(deep[1] / deep[2])
   })
 
   it('the join zone gives RND-W\'s albedo and alpha (both shore modes)', () => {

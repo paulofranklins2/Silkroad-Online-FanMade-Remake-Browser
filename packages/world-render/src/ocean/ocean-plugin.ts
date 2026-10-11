@@ -58,6 +58,7 @@ import { SHORE_FRAGMENT, SHORE_SAMPLERS, SHORE_UNIFORMS, SHORE_VERTEX } from '..
 import { CDLOD_MORPH_START } from './cdlod.ts'
 import { FIELD_DIST_STEP_M, FIELD_HEIGHT_RANGE_M, lowLandFloorCode, SWASH_BAND_M, SWASH_HEIGHT_M } from './field.ts'
 import { SHORE_DEFINE, shoreHasCode, type ShoreBinder, type ShorePart } from './shore-seam.ts'
+import { cubeLookupCode } from './sky-reflection.ts'
 
 export const SRO_OCEAN_PLUGIN = 'SroOceanPlugin'
 /** The thin-instance attribute holding a CDLOD node (x, z, size, lod). */
@@ -69,10 +70,13 @@ export const OCEAN_VARYING = 'vSroOcean'
 export const OCEAN_UNIFORMS = [
   'sroOcA', 'sroOcS', 'sroOcCam', 'sroOcLat', 'sroOcT', 'sroOcK0', 'sroOcK1', 'sroOcK2', 'sroOcK3', 'sroOcW',
   'sroOcFieldXf', 'sroOcIopA', 'sroOcIopS', 'sroOcSun', 'sroOcRough', 'sroOcWA', 'sroOcWB', 'sroOcWC', 'sroOcHorizon',
-  'sroOcZenith',
+  'sroOcZenith', 'sroOcSkyP', 'sroOcSunC',
 ] as const
-/** The ocean's samplers: the wave array (both stages), the field (both), RND-W's normal map and frames, the ripples. */
-export const OCEAN_SAMPLERS = ['sroOcWaves', 'sroOcFieldMap', 'sroOcNormal', 'sroOcFrames', 'sroOcRipple'] as const
+/**
+ * The ocean's samplers: the wave array (both stages), the field (both), RND-W's normal map and frames, the ripples,
+ * the sky's reflection cube (sky-reflection.ts).
+ */
+export const OCEAN_SAMPLERS = ['sroOcWaves', 'sroOcFieldMap', 'sroOcNormal', 'sroOcFrames', 'sroOcRipple', 'sroOcSkyCube'] as const
 
 /** Deep-water crest glow (Tidewater): the colour × 0.06 per metre of crest height, lit from behind. */
 export const CREST_GLOW: readonly [number, number, number] = [0.12 * 0.06, 0.55 * 0.06, 0.45 * 0.06]
@@ -104,6 +108,27 @@ export const OCEAN_RING_GLINT = 0.35
  */
 export const OCEAN_RING_LINE = 0.4
 
+/**
+ * Overall Pass (AAA water): the sun's glitter. Two fine, fast normal-map taps (periods GLINT_PERIODS_M, scrolling)
+ * tilt the facet normal by GLINT_SLOPE; the key light's mirror lobe on that facet, `pow(R·L, GLINT_SHARP)`, × its
+ * Fresnel × the key light's radiance × GLINT_GAIN, fading out with the pixel footprint (GLINT_FADE_M: far away the
+ * sparkles average into Babylon's GGX highlight). Bright enough to reach the bloom.
+ */
+export const GLINT_PERIODS_M: readonly [number, number] = [1.7, 0.9]
+export const GLINT_SLOPE = 0.12
+export const GLINT_SHARP = 900
+export const GLINT_GAIN = 60
+export const GLINT_FADE_M: readonly [number, number] = [0.08, 0.7]
+/**
+ * Overall Pass (AAA water): the sea floor seen through the water column. A single blend alpha cannot tint the floor
+ * per channel, so the alpha is 1 − the smallest transmittance (the floor behind shows at the most absorbed channel's
+ * strength, red) and what green and blue transmit beyond it comes back as scattered colour from an estimated floor
+ * (sand, FLOOR_ALBEDO, lit through the column): turquoise shallows over the sand, deep blue further out.
+ */
+export const FLOOR_ALBEDO: readonly [number, number, number] = [0.42, 0.38, 0.28]
+/** The sky cube's mip level per unit of GGX alpha (roughness²) × the cube's levels. */
+export const SKY_LOD_PER_ALPHA = 2
+
 /** Default inherent optical properties (per metre): absorption and scattering by channel (tuned by eye). */
 export const IOP_ABSORPTION: readonly [number, number, number] = [0.35, 0.066, 0.036]
 export const IOP_SCATTERING: readonly [number, number, number] = [0.03, 0.04, 0.05]
@@ -119,9 +144,10 @@ export function deepAlbedo(a: readonly number[] = IOP_ABSORPTION, s: readonly nu
 export function waterColour(pathM: number, a: readonly number[] = IOP_ABSORPTION, s: readonly number[] = IOP_SCATTERING): { alpha: number; albedo: [number, number, number] } {
   const p = Math.min(PATH_MAX_M, Math.max(0, pathM))
   const t = [0, 1, 2].map(c => Math.exp(-(a[c]! + s[c]!) * p))
-  const alpha = 1 - (t[0]! + t[1]! + t[2]!) / 3
+  const tMin = Math.min(t[0]!, t[1]!, t[2]!)
+  const alpha = 1 - tMin
   const r = deepAlbedo(a, s)
-  return { alpha, albedo: [0, 1, 2].map(c => (r[c]! * (1 - t[c]!)) / Math.max(alpha, 1e-3)) as [number, number, number] }
+  return { alpha, albedo: [0, 1, 2].map(c => (r[c]! * (1 - t[c]!) + FLOOR_ALBEDO[c]! * t[c]! * (t[c]! - tMin)) / Math.max(alpha, 1e-3)) as [number, number, number] }
 }
 
 /**
@@ -327,6 +353,12 @@ var<private> sroOcRgh: f32;
 var<private> sroOcGlow: vec3f;
 var<private> sroOcSky: vec3f;
 var<private> sroOcFr: f32;
+var<private> sroOcGlint: vec3f;
+var<private> sroOcEnvK: f32;
+#ifdef SRO_OCEAN_SKY
+var sroOcSkyCube: texture_cube<f32>;
+var sroOcSkyCubeSampler: sampler;
+#endif
 ${COMMON_WGSL}${shoreCode('wgsl', 'fragment', 'definitions')}#endif
 `
   }
@@ -350,6 +382,11 @@ float sroOcRgh;
 vec3 sroOcGlow;
 vec3 sroOcSky;
 float sroOcFr;
+vec3 sroOcGlint;
+float sroOcEnvK;
+#ifdef SRO_OCEAN_SKY
+uniform samplerCube sroOcSkyCube;
+#endif
 ${COMMON_GLSL}${shoreCode('glsl', 'fragment', 'definitions')}#endif
 `
 }
@@ -413,16 +450,34 @@ ${ringTaps(lang, 'sroOcRing', 'sroOcRipple', 'sroRu', null, null, `${u('sroOcWA'
   ${decl('vec2', 'sroFp', `fwidth(${posW}.xz)`)}
   sroOcFoam = max(max(sroFoamF, ${vary}.z * 0.5), sroCrown);
   sroOcAlpha = 1.0;
-${shoreCode(lang, 'fragment', 'main')}  ${decl('bool', 'sroKeep', `sroOcField.x >= 0.5 || (sroJoin < 0.5 && sroOcField.z > ${lowLandFloorCode('sroOcField.y')} && sroOcField.z < ${f(SWASH_HEIGHT_M)} && sroOcField.y > ${f(-SWASH_BAND_M)})`)}
-  if (!sroKeep || sroOcAlpha <= 0.0) {
-    discard;
-  }
-  // The normal, bent so the reflected ray never dips below the horizon (WaterMaterial.js: facets turned away go grazing).
+#ifdef SRO_OCEAN_GLINT
+  // AAA water: the glitter's micro-facets (two fine, fast taps of the normal map; GLINT_*).
+  ${decl('vec2', 'sroG0', `${t2('sroOcNormal', `(sroWP + sroWT * ${V2}(0.23, -0.11)) / ${f(GLINT_PERIODS_M[0])}`)}.xy * 2.0 - ${V2}(1.0)`)}
+  ${decl('vec2', 'sroG1', `${t2('sroOcNormal', `(${V2}(sroWP.y, -sroWP.x) + sroWT * ${V2}(-0.13, 0.19)) / ${f(GLINT_PERIODS_M[1])}`)}.xy * 2.0 - ${V2}(1.0)`)}
+#endif
+${shoreCode(lang, 'fragment', 'main')}  // The normal, bent so the reflected ray never dips below the horizon (WaterMaterial.js: facets turned away go grazing).
   ${decl('vec3', 'sroV', `normalize(${eye} - ${posW})`)}
   ${decl('vec3', 'sroNr', `normalize(${V3}(-sroSlope.x, 1.0, -sroSlope.y))`)}
   ${decl('vec3', 'sroRf', 'reflect(-sroV, sroNr)')}
   ${decl('vec3', 'sroRh', `normalize(${V3}(sroRf.x, max(sroRf.y, 0.02), sroRf.z))`)}
   sroOcN = ${sel('sroNr', 'normalize(sroV + sroRh)', 'sroRf.y < 0.02')};
+  ${decl('float', 'sroFoam', 'clamp(sroOcFoam, 0.0, 1.0)')}
+  // Cox–Munk roughness from the unresolved slope (the pixel footprint), with foam.
+  ${decl('float', 'sroFoot', 'clamp(length(sroFp) / 2.0, 0.0, 1.0)')}
+  ${decl('float', 'sroMss', `${f(MSS_BASE)} + ${f(MSS_PER_MS)} * ${u('sroOcRough')}.x`)}
+  ${decl('float', 'sroA2', `${f(ROUGH_ALPHA0 * ROUGH_ALPHA0)} + 2.0 * sroMss * (0.15 + 0.85 * sroFoot) + 0.2 * sroFoam + 0.02 * ${u('sroOcS')}.w`)}
+  sroOcRgh = mix(sqrt(sqrt(sroA2)), ${u('sroOcWB')}.w, sroJoin);
+#ifdef SRO_OCEAN_SKY
+  // AAA water: the sky itself along the reflected ray (sky-reflection.ts: the dome with its clouds in a cube; the
+  // level from the GGX alpha; the probe's faces are z-flipped), tapped before the discard (uniform control flow).
+  ${decl('vec3', 'sroRv', 'reflect(-sroV, sroOcN)')}
+  ${decl('float', 'sroLod', `clamp(sroOcRgh * sroOcRgh * ${f(SKY_LOD_PER_ALPHA)} * ${u('sroOcSkyP')}.x, ${u('sroOcSkyP')}.y, ${u('sroOcSkyP')}.x)`)}
+  ${decl('vec3', 'sroSkyR', w ? `textureSampleLevel(sroOcSkyCube, sroOcSkyCubeSampler, ${cubeLookupCode(lang, 'sroRv')}, sroLod).rgb` : `textureLod(sroOcSkyCube, ${cubeLookupCode(lang, 'sroRv')}, sroLod).rgb`)}
+#endif
+  ${decl('bool', 'sroKeep', `sroOcField.x >= 0.5 || (sroJoin < 0.5 && sroOcField.z > ${lowLandFloorCode('sroOcField.y')} && sroOcField.z < ${f(SWASH_HEIGHT_M)} && sroOcField.y > ${f(-SWASH_BAND_M)})`)}
+  if (!sroKeep || sroOcAlpha <= 0.0) {
+    discard;
+  }
   // The water column and the refracted path (field B on every preset, R4).
   ${decl('float', 'sroCol', `max(${posW}.y - (${u('sroOcA')}.x + sroOcField.z), 0.0)`)}
   ${decl('float', 'sroCosI', 'clamp(dot(sroOcN, sroV), 0.02, 1.0)')}
@@ -431,41 +486,51 @@ ${shoreCode(lang, 'fragment', 'main')}  ${decl('bool', 'sroKeep', `sroOcField.x 
   ${decl('vec3', 'sroSa', `${u('sroOcIopA')}.rgb`)}
   ${decl('vec3', 'sroSs', `${u('sroOcIopS')}.rgb`)}
   ${decl('vec3', 'sroTr', 'exp(-(sroSa + sroSs) * sroPath)')}
-  ${decl('float', 'sroAlpha', '1.0 - (sroTr.r + sroTr.g + sroTr.b) / 3.0')}
+  // AAA water (FLOOR_ALBEDO): the floor shows at the most absorbed channel's strength; the rest of what green and blue
+  // transmit comes back from an estimated sand floor, lit through the column (turquoise shallows).
+  ${decl('float', 'sroTmin', 'min(sroTr.r, min(sroTr.g, sroTr.b))')}
+  ${decl('float', 'sroAlpha', '1.0 - sroTmin')}
   ${decl('vec3', 'sroBb', `sroSs * ${f(IOP_BACKSCATTER)}`)}
   ${decl('vec3', 'sroRinf', '0.33 * sroBb / (sroSa + sroBb)')}
-  ${decl('vec3', 'sroScat', `sroRinf * (${V3}(1.0) - sroTr) / max(sroAlpha, 1e-3)`)}
+  ${decl('vec3', 'sroFloor', `${V3}(${f(FLOOR_ALBEDO[0])}, ${f(FLOOR_ALBEDO[1])}, ${f(FLOOR_ALBEDO[2])}) * sroTr * (sroTr - ${V3}(sroTmin))`)}
+  ${decl('vec3', 'sroScat', `(sroRinf * (${V3}(1.0) - sroTr) + sroFloor) / max(sroAlpha, 1e-3)`)}
   // RND-W's water in the join zone (the same state, frames and formula).
   ${decl('vec3', 'sroShallow', `pow(clamp(sroFrame * ${u('sroOcWB')}.rgb, ${V3}(0.0), ${V3}(1.0)), ${V3}(2.2)) * ${f(WATER_ALBEDO_WEIGHT)}`)}
   ${decl('float', 'sroRetail', 'clamp(trunc(sroDepth * 5.0) / 15.0, 0.0, 1.0)')}
   ${decl('float', 'sroJd', sel('sroRetail', 'clamp(sroDepth / 4.0, 0.0, 1.0)', shoreDepth))}
   ${decl('float', 'sroJa', sel('sroRetail', `clamp(sroDepth / ${f(WATER_SHORE_M)}, 0.0, 1.0)`, shoreDepth))}
   ${decl('vec3', 'sroJalb', `mix(sroShallow, sroShallow * ${u('sroOcWC')}.rgb, sroJd)`)}
-  ${decl('float', 'sroFoam', 'clamp(sroOcFoam, 0.0, 1.0)')}
   sroOcAlb = mix(mix(sroScat, sroJalb, sroJoin), ${V3}(0.85), sroFoam);
   sroOcAlpha = min(sroOcAlpha, max(mix(sroAlpha, sroJa, sroJoin), sroFoam));
-  // Cox–Munk roughness from the unresolved slope (the pixel footprint), with foam.
-  ${decl('float', 'sroFoot', 'clamp(length(sroFp) / 2.0, 0.0, 1.0)')}
-  ${decl('float', 'sroMss', `${f(MSS_BASE)} + ${f(MSS_PER_MS)} * ${u('sroOcRough')}.x`)}
-  ${decl('float', 'sroA2', `${f(ROUGH_ALPHA0 * ROUGH_ALPHA0)} + 2.0 * sroMss * (0.15 + 0.85 * sroFoot) + 0.2 * sroFoam + 0.02 * ${u('sroOcS')}.w`)}
-  sroOcRgh = mix(sqrt(sqrt(sroA2)), ${u('sroOcWB')}.w, sroJoin);
   // Crest translucency: crests above the sea level, lit from behind.
   ${decl('float', 'sroCrest', `max(${posW}.y - ${u('sroOcA')}.x, 0.0) * max(dot(-sroV, ${u('sroOcSun')}.xyz), 0.0) * ${u('sroOcSun')}.w * (1.0 - sroJoin)`)}
   sroOcGlow = ${V3}(${f(CREST_GLOW[0])}, ${f(CREST_GLOW[1])}, ${f(CREST_GLOW[2])}) * sroCrest * (1.0 - sroFoam);
-  // The sky's reflection (CST-O spike, P-LOOK): Babylon's split-sum on the blurred sky cube gives a near-horizon
-  // reflection only ~5–10 % of the horizon sky and next to no gradient, so every facet mirrored the same pale colour and
-  // the waves read only through the Fresnel weight: a flat sea. The exact Schlick Fresnel of the sky along the
-  // reflected ray is added, minus what the cube already gives (its ~0.08): the horizon colour (the height fog's own,
-  // exposed scene-linear) blending to the zenith's deeper blue (sroOcZenith: the horizon × the sky's hemisphere ratio)
-  // as the ray rises, so a wave's face turned toward the camera mirrors the deeper sky and its back the pale horizon.
   ${decl('float', 'sroCv', 'clamp(dot(sroOcN, sroV), 0.0, 1.0)')}
+  // P-LOOK: the surface's Fresnel for the blend (Schlick with roughness, as the environment BRDF sees it; foam scatters
+  // diffusely; the join keeps RND-W's water as it is). See blendCode.
+  sroOcFr = (${f(WATER_F0)} + (max(1.0 - sroOcRgh, ${f(WATER_F0)}) - ${f(WATER_F0)}) * pow(1.0 - sroCv, 5.0)) * (1.0 - sroFoam) * (1.0 - sroJoin);
+  sroOcGlint = ${V3}(0.0);
+#ifdef SRO_OCEAN_GLINT
+  ${decl('vec3', 'sroNg', `normalize(sroOcN + ${V3}(-(sroG0.x + sroG1.x), 0.0, -(sroG0.y + sroG1.y)) * ${f(GLINT_SLOPE)})`)}
+  ${decl('float', 'sroGc', 'clamp(dot(sroNg, sroV), 0.0, 1.0)')}
+  ${decl('float', 'sroGl', `pow(max(dot(reflect(-sroV, sroNg), ${u('sroOcSun')}.xyz), 0.0), ${f(GLINT_SHARP)}) * (${f(WATER_F0)} + 0.98 * pow(1.0 - sroGc, 5.0)) * ${f(GLINT_GAIN)} * (1.0 - smoothstep(${f(GLINT_FADE_M[0])}, ${f(GLINT_FADE_M[1])}, length(sroFp))) * smoothstep(-0.02, 0.05, ${u('sroOcSun')}.y)`)}
+  sroOcGlint = ${u('sroOcSunC')}.rgb * (sroGl * ${u('sroOcSkyP')}.w * (1.0 - sroFoam) * (1.0 - sroJoin));
+#endif
+  sroOcEnvK = 1.0;
+#ifdef SRO_OCEAN_SKY
+  // The sky cube replaces Babylon's blurred environment radiance on the open sea (kept in the join: RND-W's water).
+  sroOcSky = sroSkyR * (sroOcFr + ${f(OCEAN_RING_GLINT)} * sroRingG);
+  sroOcEnvK = sroJoin;
+#else
+  // The sky's reflection without the cube (CST-O spike, P-LOOK): Babylon's split-sum on the blurred sky cube gives a
+  // near-horizon reflection only ~5–10 % of the horizon sky and next to no gradient, so the exact Schlick Fresnel of the
+  // sky along the reflected ray is added, minus what the cube already gives (its ~0.08): the horizon colour (the height
+  // fog's own, exposed scene-linear) blending to the zenith's deeper blue (sroOcZenith) as the ray rises.
   ${decl('float', 'sroFr', `${f(0.02)} + 0.98 * pow(1.0 - sroCv, 5.0)`)}
   ${decl('float', 'sroRy', 'reflect(-sroV, sroOcN).y')}
   ${decl('vec3', 'sroSkyC', `mix(${u('sroOcHorizon')}.rgb, ${u('sroOcZenith')}.rgb, ${u('sroOcZenith')}.w * pow(smoothstep(0.0, 0.7, sroRy), 0.6))`)}
   sroOcSky = sroSkyC * (max(sroFr - 0.08, 0.0) * ${u('sroOcHorizon')}.w * (1.0 - sroFoam) * (1.0 - sroJoin) + ${f(OCEAN_RING_GLINT)} * sroRingG);
-  // P-LOOK: the surface's Fresnel for the blend (Schlick with roughness, as the environment BRDF sees it; foam scatters
-  // diffusely; the join keeps RND-W's water as it is). See blendCode.
-  sroOcFr = (${f(WATER_F0)} + (max(1.0 - sroOcRgh, ${f(WATER_F0)}) - ${f(WATER_F0)}) * pow(1.0 - sroCv, 5.0)) * (1.0 - sroFoam) * (1.0 - sroJoin);
+#endif
 }
 #endif
 `
@@ -497,12 +562,12 @@ function blendCode(lang: Lang): string {
   finalAmbient = finalAmbient * sroKd;
 #ifdef REFLECTION
   finalIrradiance = finalIrradiance * sroKd;
-  finalRadianceScaled = finalRadianceScaled * sroKr;
+  finalRadianceScaled = finalRadianceScaled * (sroKr * sroOcEnvK);
 #endif
 #ifdef SPECULARTERM
   finalSpecularScaled = finalSpecularScaled * sroKr;
 #endif
-  finalEmissive = finalEmissive + sroOcGlow * sroKd + sroOcSky * sroKr;
+  finalEmissive = finalEmissive + sroOcGlow * sroKd + (sroOcSky + sroOcGlint) * sroKr;
   alpha = sroB1;
 }
 #endif
@@ -518,6 +583,10 @@ function fragmentCode(lang: Lang): Record<string, string> {
     CUSTOM_FRAGMENT_UPDATE_ALPHA: `#ifdef SRO_OCEAN\nalpha = sroOcAlpha;\nnormalW = sroOcN;\n#endif\n`,
     CUSTOM_FRAGMENT_UPDATE_METALLICROUGHNESS: `#ifdef SRO_OCEAN\nmetallicRoughness = ${w ? 'vec2f' : 'vec2'}(0.0, sroOcRgh);\n#endif\n`,
     CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: blendCode(lang),
+    // AAA water: SSR on the sea (High/Ultra, sroOcSkyP.z = 1): the prepass reflectivity takes the surface's Fresnel, so
+    // the SSR pass (render/post.ts, threshold 0.05) mirrors the shore, the ships and the cliffs at grazing angles; a
+    // missed ray falls back to the sky cube (post.ts).
+    CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `#ifdef SRO_OCEAN\n#ifdef PREPASS_REFLECTIVITY\nspecularEnvironmentR0 = max(specularEnvironmentR0, ${w ? 'vec3f' : 'vec3'}(sroOcFr * ${w ? 'uniforms.' : ''}sroOcSkyP.z));\n#endif\n#endif\n`,
   }
 }
 
@@ -565,6 +634,17 @@ export class OceanPbrState {
   readonly horizon = new Vector4(0, 0, 0, 0)
   /** P-LOOK: the zenith sky in the same units (rgb) and how far the reflection blends to it (w: 0 = the horizon only). */
   readonly zenith = new Vector4(0, 0, 0, 0)
+  /**
+   * AAA water: the sky cube's top mip level, its lowest level (the volumetric clouds' march grain), SSR on the sea (1:
+   * High/Ultra), the glitter's strength (0: none).
+   */
+  readonly skyP = new Vector4(7, 0.5, 0, 1)
+  /** AAA water: the key light's radiance (colour × intensity, scene-linear), for the glitter. */
+  readonly sunC = new Vector4(0, 0, 0, 0)
+  /** AAA water: the sky reflection cube (sky-reflection.ts; null: the gradient fallback). */
+  skyCube: BaseTexture | null = null
+  /** AAA water: the sun's glitter (Medium+). */
+  glint = false
   waves: BaseTexture | null = null
   field: BaseTexture | null = null
   normal: BaseTexture | null = null
@@ -587,10 +667,18 @@ export class OceanPbrState {
   }
 
   /** Switches that change defines (a preset, a weather level or a shore change; never per frame). */
-  setSwitches(o: { lerp?: boolean; cascades4?: boolean; ripple?: BaseTexture | null }): void {
+  setSwitches(o: { lerp?: boolean; cascades4?: boolean; ripple?: BaseTexture | null; skyCube?: BaseTexture | null; glint?: boolean }): void {
     const shore = !!this.shore?.ready && (shoreHasCode(SHORE_VERTEX) || shoreHasCode(SHORE_FRAGMENT))
     let changed = shore !== this.shoreOn
     this.shoreOn = shore
+    if (o.skyCube !== undefined) {
+      if ((o.skyCube !== null) !== (this.skyCube !== null)) changed = true
+      this.skyCube = o.skyCube
+    }
+    if (o.glint !== undefined && o.glint !== this.glint) {
+      this.glint = o.glint
+      changed = true
+    }
     if (o.lerp !== undefined && o.lerp !== this.lerp) {
       this.lerp = o.lerp
       changed = true
@@ -612,7 +700,7 @@ export class OceanPbrState {
 
 export class SroOceanPlugin extends MaterialPluginBase {
   constructor(material: Material, readonly state: OceanPbrState) {
-    super(material, SRO_OCEAN_PLUGIN, 250, { SRO_OCEAN: false, SRO_OCEAN_LERP: false, SRO_OCEAN_C4: false, SRO_OCEAN_RIPPLE: false, [SHORE_DEFINE]: false }, true, true)
+    super(material, SRO_OCEAN_PLUGIN, 250, { SRO_OCEAN: false, SRO_OCEAN_LERP: false, SRO_OCEAN_C4: false, SRO_OCEAN_RIPPLE: false, SRO_OCEAN_SKY: false, SRO_OCEAN_GLINT: false, [SHORE_DEFINE]: false }, true, true)
     state.plugins.add(this)
   }
 
@@ -631,6 +719,8 @@ export class SroOceanPlugin extends MaterialPluginBase {
     defines['SRO_OCEAN_LERP'] = on && s.lerp
     defines['SRO_OCEAN_C4'] = on && s.cascades4
     defines['SRO_OCEAN_RIPPLE'] = on && s.ripple !== null
+    defines['SRO_OCEAN_SKY'] = on && s.skyCube !== null
+    defines['SRO_OCEAN_GLINT'] = on && s.glint
     defines[SHORE_DEFINE] = on && s.shoreLive
   }
 
@@ -671,6 +761,9 @@ export class SroOceanPlugin extends MaterialPluginBase {
     ubo.updateVector4('sroOcWC', s.wc)
     ubo.updateVector4('sroOcHorizon', s.horizon)
     ubo.updateVector4('sroOcZenith', s.zenith)
+    ubo.updateVector4('sroOcSkyP', s.skyP)
+    ubo.updateVector4('sroOcSunC', s.sunC)
+    if (s.skyCube) ubo.setTexture('sroOcSkyCube', s.skyCube)
     ubo.setTexture('sroOcWaves', s.waves)
     ubo.setTexture('sroOcFieldMap', s.field)
     ubo.setTexture('sroOcNormal', s.normal)

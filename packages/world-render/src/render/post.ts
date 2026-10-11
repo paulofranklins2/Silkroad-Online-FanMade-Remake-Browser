@@ -971,12 +971,19 @@ export class RenderPost implements RenderPart {
     if (this.grade && this.plan.lutGrade) this.grade.update({ sunElevationDeg: sky.sunElevationDeg, t: sky.t, cloud: this.weather.cloud, rain: this.weather.rain, winter: this.weather.winter ?? 0 })
     if (b.ssr) {
       if (this.plan.ssr === 'puddles') {
-        const pud = this.weather.puddles
+        // AAA water: water near the camera opens High's SSR like the puddles do (render.waterInView, the ocean's).
+        const pud = Math.max(this.weather.puddles, this.render.waterInView ? 1 : 0)
         if (!this.ssrOn && pud > SSR_PUDDLES_ON) this.gateSsr(b.ssr, true)
         else if (this.ssrOn && pud < SSR_PUDDLES_OFF) this.gateSsr(b.ssr, false)
       }
-      const env = this.scene.environmentTexture
-      if (env && env.isCube && b.ssr.environmentTexture !== env) b.ssr.environmentTexture = env as CubeTexture
+      // AAA water: a missed ray falls back to the sky reflection cube (the dome with its clouds; a probe: y flipped)
+      // where there is one, else to the IBL cube.
+      const sky = this.render.waterSky
+      const env = sky ?? this.scene.environmentTexture
+      if (env && env.isCube && b.ssr.environmentTexture !== env) {
+        b.ssr.environmentTexture = env as CubeTexture
+        b.ssr.environmentTextureIsProbe = env === sky
+      }
     }
     if (b.shafts) {
       // Item 16: high above the ground (flying) the air around the eye is clear: the shafts' haze thins with it.
