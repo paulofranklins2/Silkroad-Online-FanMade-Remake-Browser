@@ -34,6 +34,11 @@ export const PERF = {
    * GPU process to compile it. Off: Babylon makes it at the draw (the 100-470 ms hitches when walking / turning).
    */
   pipelinesInPlay: true,
+  /**
+   * New meshes in play have their effects compiled in a budgeted pass and are drawn out of view (as ghosts) for a few
+   * frames, so their pipelines exist before the camera turns to them (screens/pipelines.ts watchScene).
+   */
+  prewarmNew: true,
 }
 
 export type PerfSwitch = keyof typeof PERF

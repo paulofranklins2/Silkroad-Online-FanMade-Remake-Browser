@@ -225,6 +225,8 @@ export class GraphicsWarmup {
     // Real time for the per-frame budgets (`now` may be a test clock that only moves between frames).
     const clock = () => (typeof performance === 'undefined' ? Date.now() : performance.now())
     const pipes = this.o.pipelines === undefined ? PipelineWarm.for(engine) : this.o.pipelines
+    // in play from now on: the meshes the world adds later are prewarmed ahead of view (pipelines.ts watchScene)
+    pipes?.watchScene?.(scene)
     const queueProbe = this.o.gpuQueue === undefined ? gpuQueueProbe(engine) : this.o.gpuQueue
     const started0 = pipes?.started ?? 0
     let skippedSeen = pipes?.skipped ?? 0
