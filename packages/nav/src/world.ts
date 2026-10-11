@@ -657,7 +657,9 @@ export class NavWorld {
   }
 
   private pick(x: number, z: number, yHint: number, component: number): NavPosition | null {
-    const dist = yHint === Infinity ? (y: number) => -y : yHint === -Infinity ? (y: number) => y : (y: number) => Math.abs(y - yHint)
+    // the distance of a height to the hint, inline below (no closure per call: the grass bake asks this per texel,
+    // docs/PERF_OVERALL.md round 4): Infinity = the highest wins, -Infinity = the lowest, else the nearest
+    const mode = yHint === Infinity ? 1 : yHint === -Infinity ? -1 : 0
     const reach = component >= 0 ? this.reach : null
     let found = false
     let bestY = NaN
@@ -666,7 +668,7 @@ export class NavWorld {
     let bestCell = -1
     if (this.terrainOpen(x, z) && (!reach || reach.terrainComponent(x, z) === component)) {
       bestY = this.terrainHeight(x, z)
-      bestD = dist(bestY)
+      bestD = mode === 1 ? -bestY : mode === -1 ? bestY : Math.abs(bestY - yHint)
       found = true
     }
     const list = this.buckets.get(Math.floor(x / BUCKET) * BUCKET_STRIDE + Math.floor(z / BUCKET))
@@ -685,7 +687,7 @@ export class NavWorld {
           if (m.degenerate(c) || m.outside(c, lx, lz) > IN_CELL_EPS) continue
           if (reach && reach.cellComponent(inst.index, c) !== component) continue
           const y = inst.src.y + m.heightIn(c, lx, lz)
-          const d = dist(y)
+          const d = mode === 1 ? -y : mode === -1 ? y : Math.abs(y - yHint)
           if (!found || d < bestD) {
             found = true
             bestD = d
