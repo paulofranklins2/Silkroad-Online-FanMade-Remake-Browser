@@ -196,12 +196,13 @@ describe.skipIf(!FIELDS || !JANGAN)('WORLD_EXPORT=jangan-fields on the real expo
     if (p.surface!.kind === 'terrain') expect(nav.terrainOpen(p.x, p.z)).toBe(true)
   }
 
-  it('loads 307 regions and 2,233 objects (X2: coast phase 2 drops 48 object navmeshes outside the bounds on moved ground), about 700 nests and 6,000 monsters, and logs the unreachable nests once', () => {
+  it('loads the nav regions (307, plus 33 synthetic beach regions since docs/COAST.md §9.5) and 2,233 objects (X2: coast phase 2 drops 48 object navmeshes outside the bounds on moved ground), about 700 nests and 6,000 monsters, and logs the unreachable nests once', () => {
     // 2,233 retail objects (packages/convert/test/world-stream.test.ts pins them); kept World Editor adds and drops
     // change the total, which the server must load whole (the manifest's nav.instances)
-    const navLine = logs.map((l) => /^navigation: .*jangan-fields.*nav\.bin \(307 regions, (\d+) objects/.exec(l)).find(Boolean)
+    const navLine = logs.map((l) => /^navigation: .*jangan-fields.*nav\.bin \((\d+) regions, (\d+) objects/.exec(l)).find(Boolean)
     expect(navLine, logs.join('\n')).toBeTruthy()
-    expect(Number(navLine![1])).toBe(FIELDS!.nav!.instances)
+    expect(Number(navLine![1])).toBe(FIELDS!.nav!.regions.length)
+    expect(Number(navLine![2])).toBe(FIELDS!.nav!.instances)
     const line = logs.find((l) => l.startsWith('world content:'))!
     const m = /world content: (\d+) NPCs, (\d+) nests \((\d+) skipped\), (\d+) monsters spawned/.exec(line)
     expect(m, line).not.toBeNull()
@@ -287,7 +288,8 @@ describe.skipIf(!FIELDS || !JANGAN)('WORLD_EXPORT=jangan-fields on the real expo
 
     const far = await gm(a.c, 'tp', '-3000', '0')
     expect(far.message).toMatch(/clamped/)
-    expect((far.data as { pos: number[] }).pos[0]).toBeGreaterThanOrEqual(-2304)
+    // the walkable bounds reach the sea since the beaches pass (docs/COAST.md §9.5)
+    expect((far.data as { pos: number[] }).pos[0]).toBeGreaterThanOrEqual(FIELDS!.bounds!.minX)
     a.c.close()
     await a.c.closed
   })
