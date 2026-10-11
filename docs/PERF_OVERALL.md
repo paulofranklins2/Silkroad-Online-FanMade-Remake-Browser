@@ -211,15 +211,15 @@ every hidden mesh (1414, LODs included; PBR code injection 16.5 % of the sampled
 ## The 28–49 ms GPU frame (2026-10-11): not the game, the bench's GPU
 
 Every run since the PC's crash and reboot ran on the **integrated** GPU: the adapter the bench logs went from
- / "AMD Radeon RX 9060 XT" (all runs before, GPU p50 2.2–2.4 ms) to  / "AMD Radeon(TM) Graphics" (the
-Ryzen's iGPU, 512 MB, textures in shared system RAM) from  on. That is both symptoms: the GPU frame (28 ms at
+`rdna-4` / "AMD Radeon RX 9060 XT" (all runs before, GPU p50 2.2–2.4 ms) to `rdna-2` / "AMD Radeon(TM) Graphics" (the
+Ryzen's iGPU, 512 MB, textures in shared system RAM) from `r5after` on. That is both symptoms: the GPU frame (28 ms at
 1280 × 720, 49 ms at 1920 × 1080: fill-rate bound; post, shadows, render targets, particles, grass and lights each
 change it by 1–4 ms, the terrain and the objects carry it) and the 3.2–5.3 GB Chrome GPU process (the iGPU's "video
-memory" is system RAM). The round-4 build (, built in a separate worktree, today's assets) measures the
+memory" is system RAM). The round-4 build (`70a435c`, built in a separate worktree, today's assets) measures the
 same 17 ms on the iGPU, so neither round 5 nor the later commits caused it; the isolation runs agree
-(, : GPU p50 49 ms both).
+(`perfoff=prewarmNew`, `perfoff=effectsPersistent`: GPU p50 49 ms both).
 
-Chrome on Windows ignores WebGPU's  (engine.ts) and  did not change
+Chrome on Windows ignores WebGPU's `powerPreference` (engine.ts) and `--force_high_performance_gpu` did not change
 it; the adapter follows Windows' per-app graphics preference / the display's adapter. Both video controllers report
 OK. Players on dual-GPU PCs can land on the iGPU the same way (the first-run preset already treats an AMD APU as
 integrated). The bench's numbers need the discrete GPU back (Windows Settings → Display → Graphics → Chrome → High
