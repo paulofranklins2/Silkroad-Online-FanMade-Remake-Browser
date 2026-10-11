@@ -29,7 +29,9 @@ The server runs one simulation for players, monsters, NPCs and ground items. AI 
   - Any other frame gets `error bad_request` and counts as a strike toward the 20-strike disconnect (close 4008). One strike is forgiven every 3 s, so only sustained abuse closes the socket.
   - Server → client parsing checks every known field and drops unknown keys, so additive server changes do not break older clients.
 - **Rate limits.**
-  - The global budget stays at 20 msg/s (burst 40) per connection, with frames of at most 1024 bytes.
+  - Every message type has its own budget: `CLIENT_RATE_LIMITS` for the gameplay requests, `MESSAGE_RATE_LIMITS` (connection.ts) for `moveTo` (15/s, burst 15), `ping` (2/s) and the lobby requests; chat and GM keep their own buckets.
+  - Over all types together a flood ceiling of 60 msg/s (burst 120) applies; frames over it are strikes. (It was a shared 20/s budget, which one 20/s stream could use up; docs/NETWORK_AUDIT.md N3.) Frames are at most 4096 bytes (`WS_MAX_PAYLOAD`).
+  - A `moveTo` or `ping` over its own budget is dropped silently; a lobby request gets `error rate_limited`.
   - `CLIENT_RATE_LIMITS` also sets a per-type budget for every gameplay request, for example `attack` 5/s (burst 10) and `itemMove` 10/s (burst 20).
   - A request over its type budget is answered with `actionResult {ok: false, reason: 'rate_limited'}`. It is not a strike (a player mashing a key); frames over the global budget are.
   - GM commands keep their own budget of 5/s (burst 20).
