@@ -164,7 +164,9 @@ export class HeightFog {
     const start0 = Math.max(0, s.fogStart)
     const end = Math.max(start0 + 1, s.fogEnd)
     const start = start0 * this.startScale
-    this.a.set(fogDensity(start0, end) * this.densityScale, 1 / Math.max(1, this.heightFalloffM), start, on ? packFogW(this.groundY, this.mist) : 0)
+    // Item 16: the density spans the nearer start to the retail end (95% there, ÷ the density scale), so the aerial haze
+    // is a long gentle ramp: a city wall 150 m out keeps its shape instead of fogging out at 177 m.
+    this.a.set(fogDensity(start, end) * this.densityScale, 1 / Math.max(1, this.heightFalloffM), start, on ? packFogW(this.groundY, this.mist) : 0)
     const inv = 1 / Math.max(1e-3, exposure)
     // The fog colour shows as designed after the post's single tone curve (D4).
     const f = displayToExposed(sky.fogColor, toneMap, this.lin)
