@@ -16,6 +16,7 @@ describe('units', () => {
     expect(dropHoldsBody('heartbeat timeout')).toBe(true)
     expect(dropHoldsBody('socket error ECONNRESET')).toBe(true)
     expect(dropHoldsBody('server 4000 replaced by a new login')).toBe(true)
+    expect(dropHoldsBody('server 4011 not reading')).toBe(true)
     expect(dropHoldsBody('client 1000 client closed')).toBe(false)
     expect(dropHoldsBody('client 1005')).toBe(false)
     expect(dropHoldsBody('server 4010 kicked')).toBe(false)

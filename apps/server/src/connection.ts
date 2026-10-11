@@ -144,7 +144,7 @@ export class Connection {
   send(msg: ServerMessage): void {
     if (this.ws.readyState !== this.ws.OPEN) return
     if (this.ws.bufferedAmount > MAX_BUFFERED) {
-      this.close(CLOSE_CODE.abuse, 'not reading')
+      this.close(CLOSE_CODE.slow, 'not reading')
       return
     }
     const text = JSON.stringify(msg)

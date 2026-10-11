@@ -1065,6 +1065,11 @@ export const CLOSE_CODE = {
   shutdown: 4009,
   /** GM addition: kicked by a Game Master (`kick`); the socket first gets a system `chat` line with the reason. */
   kicked: 4010,
+  /**
+   * The client stopped reading (over 1 MiB unsent: a stalled tab, a dying link). Not fatal: the client reconnects and the
+   * server hands its character back (docs/NETWORK_AUDIT.md N5). Older servers used `abuse` here.
+   */
+  slow: 4011,
 } as const
 
 // ---- GM (Game Master) additions (additive, protocol v1) -----------------------------------------

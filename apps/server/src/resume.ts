@@ -62,8 +62,9 @@ export class BodyHolds {
  */
 export function dropHoldsBody(reason: string): boolean {
   if (reason === 'heartbeat timeout' || reason.startsWith('socket error')) return true
-  // replaced (4000): the same account logged in again; its new connection takes the body back
-  if (reason.startsWith('server ')) return reason.startsWith('server 4000 ')
+  // replaced (4000): the same account logged in again, its new connection takes the body back; slow (4011): a client
+  // that stopped reading, which reconnects
+  if (reason.startsWith('server ')) return reason.startsWith('server 4000 ') || reason.startsWith('server 4011 ')
   const m = /^client (\d+)/.exec(reason)
   // 1000 / 1005: the client sent a close frame on purpose (the game sends 1000 on logout; a bare close() is 1005)
   return m !== null && m[1] !== '1000' && m[1] !== '1005'

@@ -18,6 +18,12 @@ export interface StatusEvent {
 type Msg<K extends ServerMessage['t']> = Extract<ServerMessage, { t: K }>
 
 const PING_INTERVAL_MS = 5000
+/**
+ * docs/NETWORK_AUDIT.md N6: nothing heard from the server for this long (3 pings unanswered) = a half-open connection
+ * (Wi-Fi switch, sleep, a NAT that forgot us) the browser may not notice for minutes: drop it and reconnect. The
+ * server holds the character meanwhile (resume.ts) and hands it back on the reconnect.
+ */
+export const SILENCE_MS = 15_000
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 10000, 10000, 10000]
 
 /** Close codes after which retrying with the same token is pointless (or would fight another login). */
@@ -57,6 +63,8 @@ export class Session {
   private pingTimer: ReturnType<typeof setInterval> | undefined
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private pingN = 0
+  /** When the server was last heard from (the clock's monotonic ms). */
+  private lastHeard = 0
   private attempt = 0
   private everOnline = false
   private closed = false
@@ -98,6 +106,7 @@ export class Session {
     wire.onOpen = () => wire.send({ t: 'hello', version: PROTOCOL_VERSION, token: this.token })
     wire.onMessage = msg => {
       if (wire !== this.wire) return
+      this.lastHeard = this.clock.now()
       if (msg.t === 'welcome') {
         welcomed = true
         this.account = msg.account
@@ -170,7 +179,15 @@ export class Session {
   private startPing(): void {
     this.stopPing()
     // The ping carries the clock's own (monotonic) time, so the pong's round trip and offset use one clock (W9F F1).
-    const ping = () => this.wire?.send({ t: 'ping', n: ++this.pingN, clientTime: this.clock.now() })
+    this.lastHeard = this.clock.now()
+    const ping = () => {
+      if (this.wire && this.clock.now() - this.lastHeard > SILENCE_MS) {
+        this.dropWire()
+        this.scheduleReconnect('no answer from the server')
+        return
+      }
+      this.wire?.send({ t: 'ping', n: ++this.pingN, clientTime: this.clock.now() })
+    }
     ping()
     this.pingTimer = setInterval(ping, PING_INTERVAL_MS)
   }
