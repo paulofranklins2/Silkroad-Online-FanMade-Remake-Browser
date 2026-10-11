@@ -197,6 +197,8 @@ export class PipelineWarm {
     const added: Observer<AbstractMesh> | null = scene.onNewMeshAddedObservable.add(m => {
       if (PERF.prewarmNew && queue.length < 64 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
     })
+    // the hidden meshes already there (the warm-up compiles what is shown; these are shown later in play)
+    for (const m of scene.meshes) if ((!m.isEnabled() || !m.isVisible) && queue.length < 64 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
     const release = (m: AbstractMesh) => {
       held.get(m)?.undo()
       held.delete(m)
