@@ -1,6 +1,7 @@
-import { WebGPUEngine, type AbstractEngine } from '@babylonjs/core'
+import { Effect, WebGPUEngine, type AbstractEngine } from '@babylonjs/core'
 import { gpuInfoFromEngine, type GpuInfo } from '@sro/world-render'
 import { SOFTWARE_GPU } from './settings.ts'
+import { PERF } from './world/perf.ts'
 
 export type EngineKind = 'WebGPU' | 'WebGL2' | 'WebGL1'
 
@@ -160,6 +161,8 @@ export async function createEngine(canvas: HTMLCanvasElement, gpuLimits: GpuLimi
     throw new WebGpuUnavailableError('failed', `WebGPU init failed: ${err instanceof Error ? err.message : String(err)}`)
   }
   trimBindGroupCache(engine)
+  // Compiled shader variants stay for the session (PERF.effectsPersistent, docs/PERF_OVERALL.md round 3).
+  Effect.PersistentMode = PERF.effectsPersistent
   const gpu = gpuInfoFromEngine(engine, {
     isFallbackAdapter: !!(adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter),
     ...(adapter.info?.vendor ? { vendor: adapter.info.vendor } : {}),

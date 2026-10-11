@@ -39,6 +39,13 @@ export const PERF = {
    * frames, so their pipelines exist before the camera turns to them (screens/pipelines.ts watchScene).
    */
   prewarmNew: true,
+  /**
+   * Babylon's Effect.PersistentMode (engine.ts): a compiled effect (shader variant) is kept when its last material goes,
+   * instead of being released and compiled again, pipelines and all, when the next character of that look appears.
+   * Measured on the route: 15 net new effects but ≈ 50 % of all garbage was shader processing (despawn / spawn churn),
+   * and the in-play pipeline skips came back with every respawn. Off: Babylon's default release.
+   */
+  effectsPersistent: true,
 }
 
 export type PerfSwitch = keyof typeof PERF

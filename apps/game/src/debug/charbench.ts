@@ -17,7 +17,7 @@
  * The frame-time watchdog never drops the preset while the bench page is open (a 100-player frame over 33 ms would
  * otherwise send the page to Low in the middle of a run).
  */
-import { EngineInstrumentation, SceneInstrumentation, type AbstractMesh, type Scene, type Skeleton } from '@babylonjs/core'
+import { Effect, EngineInstrumentation, SceneInstrumentation, type AbstractMesh, type Scene, type Skeleton } from '@babylonjs/core'
 import { LIGHT_LOOK, applyLightLook, renderPostOf } from '@sro/world-render'
 import type { App } from '../app.ts'
 import { FrameWatchdog, settings } from '../settings.ts'
@@ -111,6 +111,7 @@ export class CharBench {
     instrumentClasses(this.probe)
     // `?perfoff=a,b` (the driver's --query): those PERF switches off from the first frame (a cold before-run of a fix)
     for (const k of new URLSearchParams(location.search).get('perfoff')?.split(',') ?? []) if (k in PERF) (PERF as Record<string, boolean>)[k] = false
+    if (!PERF.effectsPersistent) Effect.PersistentMode = false
     console.info('[charbench] ready: await __sroCharBench.measure("x"); __sroCharBench.census(); __sroCharBench.view("mid")')
   }
 
