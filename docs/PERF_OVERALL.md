@@ -127,13 +127,39 @@ The prewarm costs ≈ 1 ms of CPU a frame on the route (its budgeted effect comp
 more effects (meshes that never come into view are compiled too): the shader preprocessing's garbage is the largest
 left. Runs: `work/tmp/routebench/{before6,r2after,r2before}`.
 
+## Round 3 (same day): garbage, despawn, draws
+
+Goal: no frame over 33 ms on the route and garbage well under 20 MB/s. **Not reached**; what was found and done:
+
+| # | Finding | Done | Files / switch |
+|---|---|---|---|
+| 1 | **Shader garbage was respawn churn, not new looks**: only 15–21 effects are new over the whole route, but Babylon releases an effect (and its pipelines) when its last material goes, so every despawn / respawn of a look compiled it again (and its pipelines were skipped in play again) | compiled effects kept for the session (`Effect.PersistentMode`) | engine.ts, `PERF.effectsPersistent` |
+| 1b | The prewarm compiled meshes nobody looked at (≈ 1 ms a frame) | only meshes within 140 m and the view + 90° are prewarmed; the rest wait in the queue | screens/pipelines.ts |
+| 3 | In-play skips by mesh (the bench now names them): the siege stockade's props, the town folk's horse and parts, made hidden at load and shown later, when already in view | hidden meshes (also those made before the warm-up) wait in the queue until shown instead of being dropped | screens/pipelines.ts |
+| 3b | The last despawn (50–70 ms under load): `AbstractMesh.dispose` walks every light's include / exclude lists and every shadow map's render list per mesh | the actor's animatables are stopped without a splice each; **sliced disposal over frames was tried and reverted**: four test suites (actor culling, idle corpses, ride, the W11 Low ↔ Medium switch) rely on an actor's meshes being gone right after its dispose | three/models.ts |
+| 4 | Draw submission | **census** (route bench): plaza 125–215 plain draws, fields 50–455, and 0–1 geometry + material pairs drawn twice: the world is already batched / thin-instanced, instancing has nothing left to merge. **Snapshot rendering** (Babylon's FAST mode, `SnapshotRenderingHelper`) bakes the draw list; any change to the set of drawn meshes (frustum culling on every camera turn, streaming, characters, LOD and crowd switches) needs a re-record, i.e. almost every frame here: not adopted. Render bundles for the static world would need a separate per-region static pass (world-render) | route-bench.ts `drawCensus` |
+| 5 | Garbage > 5 % | route-only sampling (the setup is now outside the sampled window): **no source is above 5 %** any more; the largest are PBR effect code injection 4.6–5.1 %, Babylon's `isReady` define strings ≈ 7 % together (materials re-checked every frame), the grass bake ≈ 8.7 % together (the grass task), pipeline lookups 3.4 %, the sky's prefiltered radiance 3.2 % | – |
+| 2 | Character / outfit / weapon / rarity variant prewarm at character select | **not done**: the variants a session meets arrive as new meshes and go through the prewarm above; warming looks nobody wears yet would mean loading their models | – |
+
+Garbage on the route: 49 MB/s (round 1) → 56 (round 2, the prewarm) → **33–36 MB/s** (round 3, persistent effects; the
+two runs at the same 33–35 % machine CPU: 56.3 → 35.2). The route's own allocations (sampled, everything the V8
+young generation collected included) are ≈ 45 MB/s with no source above 5 %.
+
+Frames: the PC never stayed quiet for a whole run in round 3 (other helpers' builds and benches started mid-run,
+33–90 % machine CPU, < 200 MB free RAM). The least loaded runs (`r3c`, `r3d`, 33–35 %): frames > 33 ms 37–43, > 50 ms
+7–11, > 100 ms 2–4, none > 250 ms, p99 38–41 ms, CPU per frame p50 11.8–12.4 ms, sync pipelines 0. Every remaining
+spike over 100 ms in those runs is a despawn (66–76 ms) or a frame whose JS took 100+ ms only under load. A quiet-machine
+pair is still owed (`pnpm charbench --route --alloc --bots 8 --configs webgpu-medium`, one config per invocation,
+≥ 4 GB free RAM). Runs: `work/tmp/routebench/{r3c,r3d,r3e,r3f}`.
+
 ## Plan (next)
 
-1. **Shader preprocessing garbage** (50 % of the garbage now): Babylon's `ProcessIncludes` / PBR define strings on the
-   main thread; cache processed shader code per define set, or prewarm only meshes within the view distance.
-2. **The last in-play skips** (172 draws on the route): prewarm a few more frames for meshes added near the camera, and
-   the character variants (outfits, weapons, rarity glows) at character select.
-3. **The remaining despawn** (one 55 ms): the actor's animation groups' disposal (`AnimationGroup.dispose`, up to 43 ms
-   a despawn with 20 bots) scans the scene's animatables per group too.
+1. **Despawn** (50–70 ms under load): remove an actor's meshes from the lights' lists and the shadow render lists in
+   one pass before its dispose (each mesh's dispose then finds nothing to splice), or make the disposal asynchronous
+   with the four tests above taught to wait for it.
+2. **Hidden-then-shown meshes** (the stockade, the town folk): prewarm them while hidden (a ghost draw with the mesh
+   briefly enabled) so their first visible frame has its pipelines.
+3. **Materials re-checked every frame** (`isReady` define strings ≈ 7 % of the garbage): find which material is marked
+   dirty each frame.
 4. **Draw submission** (`bjs.mainDraw` 4–9 ms, Babylon's WebGPU per-draw cost): fewer draws (batching,
    docs/BATCHING.md) or render bundles (Babylon's snapshot rendering) for the static world.
