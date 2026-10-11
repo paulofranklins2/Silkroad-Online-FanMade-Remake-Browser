@@ -938,12 +938,20 @@ export class ModelLibrary {
     const fallback = !items.some(b => b.slot === 'weapon') && look.fallbackWeapon && (look.equip === undefined || wornWeapon !== undefined)
       ? look.fallbackWeapon
       : null
-    const [loaded, fb] = await Promise.all([
+    const [loaded, fbFirst] = await Promise.all([
       // Socket items (weapons, shields) load their sidecar too: its `dummies` are the trail points (weaponDummy).
       Promise.all(items.map(b => this.load(b.glb, b.kind === 'socket' ? sidecarOf(b.glb) : undefined).catch(err => (console.warn('[models] item failed', b.code, b.glb, err), null)))),
       fallback ? this.load(fallback.glb, fallback.sidecar).catch(err => (console.warn('[models] weapon failed', fallback.glb, err), null)) : null,
       this.ensureClips(actor, look.family).catch(err => console.warn('[models] weapon clips failed', look.family, err)),
     ])
+    // The worn weapon's model failed to load (missing on this host, a network error): the family's weapon stands in, so
+    // the character never stands empty-handed (character select, 2026-10-11 reports).
+    let fb = fbFirst
+    const weaponFailed = !fallback && items.some((b, i) => b.slot === 'weapon' && !loaded[i])
+    if (weaponFailed && look.fallbackWeapon) {
+      const w = look.fallbackWeapon
+      fb = await this.load(w.glb, w.sidecar).catch(err => (console.warn('[models] weapon failed', w.glb, err), null))
+    }
     if (this.disposed || actor.isDisposed || !actor.isDressToken(token)) return
     if (actor.isPlayer && !actor.glow) actor.glow = this.glow
     if (actor.isPlayer && !actor.rarityFx) actor.rarityFx = this.rarity

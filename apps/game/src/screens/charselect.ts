@@ -258,6 +258,8 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
         if (disposed || slots[i] !== slot) return actor.dispose()
         actor.root.setEnabled(false)
         slot.actor = actor
+        // what each character was dressed with (players' console output for the weapon reports)
+        console.info(`[charselect] ${character.name}: ${licensed ? 'licensed' : 'retail'} ${model.code}, weapon ${worn ?? 'none'} (${family}), drawn: ${actor.wornCodes.join(' ') || 'nothing'}`)
       } catch (err) {
         console.error('[charselect] model failed', model.glb, err)
         tick(1)
