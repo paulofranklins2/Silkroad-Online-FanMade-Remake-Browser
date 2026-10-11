@@ -7,6 +7,7 @@
 import { CONTENT_FILES, contentEntries, installJobsContent, installSiegeContent, installSiegeEventContent, installSiegeHunterContent, installSiegeLawContent, installWinterContent, PLAYER_MODELS_CH, STARTER_WEAPONS, type CosDef, type ItemDef, type MobDef, type StarterWeapon } from '@sro/shared'
 import { gameText, t, type StringKey } from '../i18n/index.ts'
 import { builtinTables, fetchContentTables, type ContentTables } from './gameplay.ts'
+import { applyItemIcons } from './item-icons.ts'
 import { applyWinterIcons } from './winter-icons.ts'
 
 export { STARTER_WEAPONS }
@@ -416,6 +417,8 @@ export async function loadCatalog(): Promise<Catalog> {
   installSiegeHunterContent(content, 'jangan')
   // docs/JOBS.md §5.1 (layer 0): the four trade posts' traders (names and greetings; the server places them)
   installJobsContent(content, 'jangan')
+  // the painted icons of authored items without a retail icon (content/item-icons.ts)
+  applyItemIcons(content.items)
   console.info(`[content] mobs ${content.mobs.size}, items ${content.items.size}; exported: ${content.exported.join(', ') || 'none (builtin stand-ins)'}`)
   // Horses (lane MR-C): cos.json, when exported.
   const cos = await fetchJson(`${OUT}data/${CONTENT_FILES.cos}`).then(parseCosJson, () => [])

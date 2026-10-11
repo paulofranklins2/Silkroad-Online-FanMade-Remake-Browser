@@ -6,6 +6,7 @@
  */
 import { applyClimbItemLevels, climbSetBonus, climbSetLineFor, contentEntries, equipSlotsFor, rarityOf, type EquipSlot, type ItemDef, type ItemSlotKind, type ItemStack, type PlayerStats } from '@sro/shared'
 import { genderOf, weaponLabel } from '../content/catalog.ts'
+import { authoredItemIcon } from '../content/item-icons.ts'
 import { gameText, t, type StringKey } from '../i18n/index.ts'
 import { curDurability, durabilityState, maxDurability } from './repair.ts'
 
@@ -121,11 +122,11 @@ export class ItemCatalog {
     return stack.plus ? t('item.plus', { name, plus: stack.plus }) : name
   }
 
-  /** Icon URL: the icon export first, then ItemDef.icon; null when neither exists. */
+  /** Icon URL: the icon export first, then a painted authored icon (content/item-icons.ts), then ItemDef.icon; null when none exists. */
   icon(code: string): string | null {
     const file = this.icons[code]
     if (file) return file.startsWith('/') ? file : OUT + file
-    return this.defs.get(code)?.icon ?? null
+    return authoredItemIcon(code) ?? this.defs.get(code)?.icon ?? null
   }
 
   slotKind(code: string): ItemSlotKind | undefined {
