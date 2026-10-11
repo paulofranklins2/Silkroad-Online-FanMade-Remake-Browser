@@ -53,6 +53,13 @@ const STEP_MS = 400
  */
 const SELECTED_IDLE = 'STAND3' as BaseClip
 
+/**
+ * The idle of a character that is not selected: STAND1, except long weapons (spear, glaive). The male bodies' spear
+ * STAND1 is the field fighter's (`STAND1_spear_stand_city_fighter`: the pole held low across the body, the blade
+ * on the ground); the city stand STAND3_spear_stand_city02 holds it upright, on every body.
+ */
+const idleOf = (a: CharacterActor): BaseClip => (a.family === 'spear' || a.family === 'glaive' ? SELECTED_IDLE : 'STAND1')
+
 interface Point {
   x: number
   y: number
@@ -196,7 +203,7 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
         if (j === selected) {
           a.play(SELECTED_IDLE)
           a.playClip('POSE')
-        } else a.play('STAND1')
+        } else a.play(idleOf(a))
       }
     }
     view?.selected(slot?.actor ? slot.to : null)
@@ -280,7 +287,7 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
       if (!actor) continue
       actor.root.position.copyFrom(s.at)
       actor.root.setEnabled(true)
-      actor.play('STAND1')
+      actor.play(idleOf(actor))
       v.add(actor.root)
       const h = actor.height * s.scale
       const pick = CreateCylinder(`pick${i}`, { diameter: 0.9, height: h }, v.scene)
