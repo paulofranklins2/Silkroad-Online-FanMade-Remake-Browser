@@ -73,7 +73,7 @@ import { CLEAR_RENDER_WEATHER, type RenderWeather } from './weather.ts'
 import { LightShafts, SHAFT_TUNING, SHAFT_TUNING_V1, planShafts, shaftLook, type ShaftMode, type ShaftPlan, type ShaftShadowSource, type ShaftTuning } from './volumetrics/shafts.ts'
 import { EyeAdaptation } from './adaptation.ts'
 import { LIGHT_LOOK } from './look.ts'
-import { atmosphereLook, mistLevel, sunBreak } from './atmosphere.ts'
+import { atmosphereLook, atmosphereWeights, mistLevel, sunBreak } from './atmosphere.ts'
 import { CAMERA_HEIGHT_M } from '../pbr/fog-plugin.ts'
 import { DEFAULT_HEIGHT_FALLOFF_M } from '../pbr/fog-plugin.ts'
 
@@ -910,7 +910,9 @@ export class RenderPost implements RenderPart {
       this.fog.groundY = LIGHT_LOOK.groundMist && target && Number.isFinite(target.y) ? target.y : null
       this.fog.mist = LIGHT_LOOK.groundMist ? mistLevel(sky.sunElevationDeg, sky.t, this.weather) : 0
       this.fog.sunScatter = 0.5 * (1 - 0.5 * Math.min(1, this.weather.rain))
-      this.fog.desaturate = LIGHT_LOOK.groundMist ? Math.min(0.85, 0.35 * this.weather.cloud + 0.6 * this.weather.rain) : 0
+      // (and by day a third: the horizon ring is a saturated teal that painted far walls and hills flat cyan)
+      const dayW = atmosphereWeights(sky.sunElevationDeg, sky.t)[0]
+      this.fog.desaturate = LIGHT_LOOK.groundMist ? Math.min(0.85, 0.3 * dayW + 0.35 * this.weather.cloud + 0.6 * this.weather.rain) : 0
       this.fog.update(sky, this.exposure, this.plan.toneMap)
       const ring = this.quality.horizonRingFog && sky.horizonRing !== null
       if (ring !== this.fog.ringActive) this.fog.setActive(true, ring)

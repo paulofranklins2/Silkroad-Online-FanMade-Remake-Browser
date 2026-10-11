@@ -180,7 +180,7 @@ export class HeightFog {
     this.sun.set(d.x, d.y, d.z, this.sunScatter * up)
     const k = sky.keyLight.color
     // The glow around the sun: the fog colour tinted by the key light (1.6× so the halo reads against the horizon).
-    this.sunColor.set(this.color.x * k[0] * 1.6, this.color.y * k[1] * 1.6, this.color.z * k[2] * 1.6, 0)
+    this.sunColor.set(this.color.x * k[0] * 1.6, this.color.y * k[1] * 1.6, this.color.z * k[2] * 1.6, g)
     this.ring = sky.horizonRing
   }
 
@@ -301,6 +301,8 @@ const WGSL_APPLY = `
 #ifdef SRO_FOG_RING
   let sroRing = textureSampleLevel(sroFogRing, sroFogRingSampler, vec2f(sroFogRingU(sroDir), 0.5), 0.0).rgb;
   sroHorizon = max(sroRing, vec3f(0.0)) * uniforms.sroFogColor.w;
+  // item 16: the ring greys like the flat colour (rain, overcast, the daytime teal; sroFogSunColor.w)
+  sroHorizon = mix(sroHorizon, vec3f(dot(sroHorizon, vec3f(0.2126, 0.7152, 0.0722))) * vec3f(0.96, 1.0, 1.06), uniforms.sroFogSunColor.w);
 #endif
   let sroAmt = sroHeightFogAmount(sroPos, sroEye, uniforms.sroFogA);
   let sroCol = sroHeightFogTint(sroDir, sroHorizon, uniforms.sroFogSun, uniforms.sroFogSunColor.rgb);
@@ -327,6 +329,7 @@ const GLSL_APPLY = `
 #ifdef SRO_FOG_RING
   vec3 sroRing = textureLod(sroFogRing, vec2(sroFogRingU(sroDir), 0.5), 0.0).rgb;
   sroHorizon = max(sroRing, vec3(0.0)) * sroFogColor.w;
+  sroHorizon = mix(sroHorizon, vec3(dot(sroHorizon, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.96, 1.0, 1.06), sroFogSunColor.w);
 #endif
   float sroAmt = sroHeightFogAmount(vPositionW, sroEye, sroFogA);
   vec3 sroCol = sroHeightFogTint(sroDir, sroHorizon, sroFogSun, sroFogSunColor.rgb);
