@@ -87,15 +87,53 @@ that load; a quiet-machine pair is still owed: `pnpm charbench --route --bots 8 
 same with `--query perfoff=pipelinesInPlay`. High (after, fix on): sync pipelines 0, GPU p50 4.7 ms.
 Runs: `work/tmp/routebench/{before6,before8,after3,after2high}` (JSON with every spike, the probe's systems, LoAF).
 
-## Plan (not done here)
+## Round 2 (same day): the rest of the plan
 
-1. **Despawn hitch (94–131 ms)**: the handler's time is not Babylon's disposal; next step is the probe on
-   `features.onEntityRemoved` per feature and `EntityView.die` / `beginFade` to find it, then defer the work.
-2. **Effects compiled in play** (25 % of the garbage, 5–40 ms each on the main thread): extend the warm-up's shader
-   stage to the materials streamed regions bring (a per-region `isReady(true)` pass in the streamer's idle budget).
-3. **Retarget on the main thread** (30 % of the garbage): run `retargetClip` in a worker, or cache the rebuilt clips
-   per body file in IndexedDB.
-4. **Stream jobs over budget** (one job up to 11.6 ms against 4 ms): split the largest commit steps.
-5. **Crowd plan / outfit merge bursts** (28 / 19 ms with 20 bots): spread a plan's merges over frames.
-6. **Draw submission** (`bjs.mainDraw` 4–9 ms, Babylon's WebGPU per-draw cost): fewer draws (batching, docs/BATCHING.md)
-   or render bundles (Babylon's snapshot rendering) for the static world.
+| # | Finding | Fix | Files | Switch |
+|---|---|---|---|---|
+| 1 | **Despawn 94–150 ms** was the actor's teardown: every node's and mesh's dispose (≈ 45 an actor) calls `scene.stopAnimation(node)`, a scan of every running animatable of the scene (probe: `actor.dispose` p95 104 ms, inside it `bjs.mesh.dispose` 84 + `bjs.node.dispose` 66 ms a despawn) | one scan stops the actor's animatables, the per-node scans are skipped while it is torn down | three/models.ts `CharacterActor.dispose` | – |
+| 2 | Pipelines still made when a mesh first comes into view (the round-1 skip hides it a frame or two) | **new meshes ahead of view**: a mesh added in play has its effects compiled in a 2 ms/frame pass (`isReady(true)`) and is drawn for up to 8 frames even out of view, as a ghost, so its pipelines are made in the background before the camera turns to it; installed by the warm-up (world entry, teleport, graphics switch) | screens/pipelines.ts `watchScene`, screens/warmup.ts | `PERF.prewarmNew` |
+| 3 | Retarget: ≈ 35 % of the garbage | rebuilt clips cached per skeleton (the spec's content), not per body file object; the quaternion multiply without destructuring (round 1) | three/retarget-clips.ts | – |
+| 4 | Stream jobs ran one job past the 4 ms budget | a frame starts no job that the recent jobs' average says would overrun (after half the budget) | world-render stream.ts `step` | – |
+| 5 | Crowd plan bursts (4 merges + 3 outfits + 8 crowd joins in one frame: 28 ms with 20 bots) | a plan builds for 3 ms at most, the rest comes with the next plan 50 ms later | world/crowd-budget.ts | – |
+
+The probe now also times nested work between frames (a despawn's parts), the features' entity hooks, and the
+background pipelines (`warm`: in-play skips, prewarmed meshes).
+
+### Before / after (quiet machine)
+
+WebGPU Medium, 8 bots, the route; "before" = the round-1 baseline `before6` (19 % machine CPU), "after" = all fixes of
+both rounds `r2after` (15 % machine CPU). (The paired `r2before` run with the pipeline switches off hit 67 % machine CPU
+from other work and is not comparable; its despawns still showed `actor.dispose` 60 ms p95 with the dispose fix off.)
+
+| | before | after |
+|---|---|---|
+| frames > 250 ms | 5 | **0** |
+| frames 100–250 ms | 10 | **2** |
+| frames 50–100 ms | 10 | 7 |
+| frames > 33 ms | 39 | **22** |
+| frame p99 / max | 64.7 / 469 ms | **33.2 / 104 ms** |
+| pipelines made at a draw (sync) | 55 | **0** (115 in the background; 444 meshes prewarmed; 172 draws waited a frame) |
+| stalls (> 100 ms with < 50 ms of JS) | 15 | **2** |
+| despawn p95 / max | 21.8 / 94 ms | **2.8 / 55 ms** |
+| stream job max | 5.4 ms (11.6 with 20 bots) | 5.2 ms |
+| crowd plan max | 5.5 ms (28 with 20 bots) | 9.7 ms (8 bots, one plan) |
+| long tasks | 9, max 101 ms | 5, max 103 ms |
+| CPU per frame p50 / p95 | 9.1 / 16.7 ms | 10.1 / 20.3 ms |
+| GPU per frame p50 / p95 | 2.2 / 3.1 ms | 2.2 / 3.6 ms |
+| garbage | 49 MB/s; retarget 35 %, shaders 32 % | 60 MB/s; retarget **9 %**, shaders 50 % |
+
+The prewarm costs ≈ 1 ms of CPU a frame on the route (its budgeted effect compiles and the ghost draws) and makes
+more effects (meshes that never come into view are compiled too): the shader preprocessing's garbage is the largest
+left. Runs: `work/tmp/routebench/{before6,r2after,r2before}`.
+
+## Plan (next)
+
+1. **Shader preprocessing garbage** (50 % of the garbage now): Babylon's `ProcessIncludes` / PBR define strings on the
+   main thread; cache processed shader code per define set, or prewarm only meshes within the view distance.
+2. **The last in-play skips** (172 draws on the route): prewarm a few more frames for meshes added near the camera, and
+   the character variants (outfits, weapons, rarity glows) at character select.
+3. **The remaining despawn** (one 55 ms): the actor's animation groups' disposal (`AnimationGroup.dispose`, up to 43 ms
+   a despawn with 20 bots) scans the scene's animatables per group too.
+4. **Draw submission** (`bjs.mainDraw` 4–9 ms, Babylon's WebGPU per-draw cost): fewer draws (batching,
+   docs/BATCHING.md) or render bundles (Babylon's snapshot rendering) for the static world.
