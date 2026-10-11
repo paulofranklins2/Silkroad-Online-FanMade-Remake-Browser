@@ -69,6 +69,8 @@ export const MIST_H_M = 7
 export const MIST_START_M = 6
 /** Metres of fog start added per metre the eye is above its usual height (for the rays down toward the ground). */
 export const ALT_START_K = 1.2
+/** Item 16: the most a surface short of the fog end is fogged (it keeps its shading under the haze). */
+export const FOG_CAP = 0.82
 
 /** Fog density (1/m) for a fog that starts at `startM` and reaches 95% at `endM`. */
 export function fogDensity(startM: number, endM: number): number {
@@ -225,7 +227,11 @@ fn sroHeightFogAmount(posW: vec3f, eye: vec3f, a: vec4f) -> f32 {
     let avg = select((e1 - e0) * ${MIST_H_M.toFixed(1)} / h, 0.5 * (e0 + e1), abs(h) < 0.05);
     mist = md * max(dist - ${MIST_START_M.toFixed(1)}, 0.0) * avg;
   }
-  return (1.0 - exp(-a.x * d * f - mist)) * step(0.5, a.w);
+  // item 16: aerial haze keeps some shape — capped at FOG_CAP until the fog's own end (3/density past its start), where
+  // it reaches 1 (the streaming edge stays hidden); a far wall no longer flattens into a solid fog-coloured box
+  let fEnd = 3.0 / max(a.x, 1e-6);
+  let cap = mix(${FOG_CAP.toFixed(2)}, 1.0, smoothstep(0.8 * fEnd, fEnd, dist - a.z));
+  return min(1.0 - exp(-a.x * d * f - mist), cap) * step(0.5, a.w);
 }
 fn sroHeightFogTint(dir: vec3f, horizon: vec3f, sun: vec4f, sunColor: vec3f) -> vec3f {
   let s = pow(max(dot(dir, sun.xyz), 0.0), 8.0) * sun.w;
@@ -259,7 +265,9 @@ float sroHeightFogAmount(vec3 posW, vec3 eye, vec4 a) {
     float avg = abs(h) < 0.05 ? 0.5 * (e0 + e1) : (e1 - e0) * ${MIST_H_M.toFixed(1)} / h;
     mist = md * max(dist - ${MIST_START_M.toFixed(1)}, 0.0) * avg;
   }
-  return (1.0 - exp(-a.x * d * f - mist)) * step(0.5, a.w);
+  float fEnd = 3.0 / max(a.x, 1e-6);
+  float cap = mix(${FOG_CAP.toFixed(2)}, 1.0, smoothstep(0.8 * fEnd, fEnd, dist - a.z));
+  return min(1.0 - exp(-a.x * d * f - mist), cap) * step(0.5, a.w);
 }
 vec3 sroHeightFogTint(vec3 dir, vec3 horizon, vec4 sun, vec3 sunColor) {
   float s = pow(max(dot(dir, sun.xyz), 0.0), 8.0) * sun.w;
