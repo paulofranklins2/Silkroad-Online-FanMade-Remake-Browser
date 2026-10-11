@@ -46,6 +46,8 @@ export const PERF = {
    * and the in-play pipeline skips came back with every respawn. Off: Babylon's default release.
    */
   effectsPersistent: true,
+  /** ShaderMaterial readiness answered from a per-mesh signature instead of a rebuilt define string (three/shader-ready-cache.ts). */
+  shaderReadyCache: true,
 }
 
 export type PerfSwitch = keyof typeof PERF
