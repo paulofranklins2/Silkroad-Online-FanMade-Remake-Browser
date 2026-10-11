@@ -137,7 +137,7 @@ export function lutRowsPerFrame(q: Readonly<SkyQuality>): number {
 export const SKY_PRESETS: Readonly<Record<SkyPreset, Readonly<SkyQuality>>> = {
   low: {
     lut: { width: 48, height: 24, steps: 12, refreshS: 4, worker: false },
-    clouds: { kind: 'retail', taps: 1, lightTaps: 0, cirrus: false, detailOctave: false },
+    clouds: { kind: 'retail', taps: 1, lightTaps: 0, cirrus: false, detailOctave: false, volumeSteps: 0 },
     cloudShadows: 'off',
     stars: { perFace: 128, twinkle: false, milkyWay: false },
     flares: 0,
@@ -146,7 +146,7 @@ export const SKY_PRESETS: Readonly<Record<SkyPreset, Readonly<SkyQuality>>> = {
   },
   medium: {
     lut: { width: 96, height: 48, steps: 16, refreshS: 2, worker: false },
-    clouds: { kind: 'cumulus', taps: 3, lightTaps: 1, cirrus: false, detailOctave: false },
+    clouds: { kind: 'cumulus', taps: 3, lightTaps: 1, cirrus: false, detailOctave: false, volumeSteps: 0 },
     cloudShadows: 'off',
     stars: { perFace: 256, twinkle: false, milkyWay: false },
     flares: 0,

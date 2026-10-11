@@ -126,7 +126,8 @@ describe('WEATHER_PRESETS (WEATHER §9.1)', () => {
 
 describe('Ultra (D5)', () => {
   it("keeps High's world and streaming settings", () => {
-    expect(QUALITY_PRESETS.ultra).toEqual(QUALITY_PRESETS.high)
+    // the grass pass (7f75303) gave Ultra its own grass level; every other world setting is High's
+    expect(QUALITY_PRESETS.ultra).toEqual({ ...QUALITY_PRESETS.high, scatter: 'ultra' })
     expect(STREAM_DEFAULTS.ultra).toEqual(STREAM_DEFAULTS.high)
     expect(STREAM_DEFAULTS.ultra).not.toBe(STREAM_DEFAULTS.high)
   })

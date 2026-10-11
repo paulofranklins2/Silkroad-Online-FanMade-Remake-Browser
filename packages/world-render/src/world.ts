@@ -114,7 +114,7 @@ export const QUALITY_PRESETS: Record<WorldQuality, QualitySettings> = {
   low: { drawDistance: 0.6, animated: false, water: true, scatter: 'low' },
   medium: { drawDistance: 1, animated: true, water: true, scatter: 'medium', grassStyle: 'field' },
   high: { drawDistance: 1.4, animated: true, water: true, scatter: 'high', grassStyle: 'field' },
-  // Wave 9 (D5): Ultra keeps High's world settings; its extras are the render and sky blocks.
+  // Wave 9 (D5): Ultra keeps High's world settings (but its own grass level); its extras are the render and sky blocks.
   ultra: { drawDistance: 1.4, animated: true, water: true, scatter: 'ultra', grassStyle: 'field' },
 }
 

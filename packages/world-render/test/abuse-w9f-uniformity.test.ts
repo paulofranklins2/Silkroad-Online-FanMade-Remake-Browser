@@ -1102,7 +1102,7 @@ describe('assembled WGSL: the ShaderMaterials, every define set (none, all, each
     terrain: terrainShaders(),
     water: waterShaders(),
     grass: scatterShaders(),
-    sky: { vertexWGSL: skyVertexWGSL, fragmentWGSL: skyFragmentWGSL, extra: ['SKY_LIGHT_TAPS 3'] },
+    sky: { vertexWGSL: skyVertexWGSL, fragmentWGSL: skyFragmentWGSL, extra: ['SKY_LIGHT_TAPS 3', 'SKY_VOL_STEPS 32'] /* dome.ts defines the march length with SKY_CLOUDS_VOLUME */ },
     ...RAIN_SHADERS,
     shelter: SHELTER_SHADERS,
   }
