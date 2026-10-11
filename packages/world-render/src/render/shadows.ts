@@ -150,7 +150,8 @@ export function csmSettings(q: Readonly<ShadowQuality>, o: { webgl?: boolean } =
     maxZ: q.distanceM,
     lambda: [0.7, 0.8, 0.85][tier]!,
     blend: [0.1, 0.08, 0.05][tier]!,
-    filter: (['low', 'medium', 'high'] as const)[tier]!,
+    // Item 16 (the AAA pass): High filters its PCF like Ultra (softer penumbrae; the kernel is a few taps per pixel).
+    filter: (['low', 'high', 'high'] as const)[tier]!,
     soft: q.soft ?? 0,
   }
 }
