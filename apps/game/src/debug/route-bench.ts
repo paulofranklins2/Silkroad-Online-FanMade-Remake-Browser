@@ -209,7 +209,7 @@ export interface RouteResult {
   newEffects: number
   newEffectsBy: [string, number][]
   /** Pipelines made in the background during the route: in-play skips (a visible mesh waited), new meshes prewarmed, started. */
-  warm: { skippedInPlay: number; prewarmed: number; started: number } | null
+  warm: { skippedInPlay: number; prewarmed: number; started: number; skippedBy: [string, number][] } | null
 }
 
 /** The route's start: noon, clear, the plaza, the camera, the streaming settled. */
@@ -277,6 +277,7 @@ export async function runRoute(
   const effectKeys = () => Object.keys((eng as unknown as { _compiledEffects?: object })._compiledEffects ?? {})
   const effects0 = new Set(effectKeys())
   const pw = PipelineWarm.for(eng)
+  if (pw) pw.skipLog = new Map()
   const w0 = pw ? { skippedInPlay: pw.skippedInPlay, prewarmed: pw.prewarmed, started: pw.started } : null
   probe.start()
   try {
@@ -331,7 +332,9 @@ export async function runRoute(
     byShader.set(n, (byShader.get(n) ?? 0) + 1)
   }
   const newEffectsBy = [...byShader].sort((a, b) => b[1] - a[1]).slice(0, 15)
-  const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started } : null
+  const skippedBy = pw?.skipLog ? [...pw.skipLog].map(([k, n]) => [k.replace(/\d+/g, '#'), n] as [string, number]).reduce((m, [k, n]) => m.set(k, (m.get(k) ?? 0) + n), new Map<string, number>()) : null
+  if (pw) pw.skipLog = null
+  const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started, skippedBy: skippedBy ? [...skippedBy].sort((a, b) => b[1] - a[1]).slice(0, 12) : [] } : null
   scene.onBeforeRenderObservable.remove(spinObs)
   eng.onEndFrameObservable.remove(gpuObs)
   gi?.dispose()

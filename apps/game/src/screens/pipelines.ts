@@ -94,6 +94,8 @@ const PREWARM_TRIES = 30
 /** Mesh draws in progress (Mesh._draw, patched once): the in-play rule only skips those. */
 let meshDrawDepth = 0
 let meshDrawPatched = false
+/** The mesh being drawn (Mesh._draw), for the bench's skip log. */
+let drawingMesh: { name: string } | null = null
 function patchMeshDraw(): void {
   if (meshDrawPatched) return
   meshDrawPatched = true
@@ -102,6 +104,7 @@ function patchMeshDraw(): void {
   if (typeof draw !== 'function') return
   proto._draw = function (this: unknown, subMesh: unknown, fillMode: number, instancesCount?: number) {
     meshDrawDepth++
+    drawingMesh = this as { name: string }
     try {
       return draw.call(this, subMesh, fillMode, instancesCount)
     } finally {
@@ -140,6 +143,8 @@ export class PipelineWarm {
   skipped = 0
   /** Mesh draws skipped in play for a pipeline being made (PERF.pipelinesInPlay). */
   skippedInPlay = 0
+  /** Set by the bench: in-play skips by mesh name (null: not counted). */
+  skipLog: Map<string, number> | null = null
 
   /** The engine's PipelineWarm (one per engine; null when the engine is not WebGPU or its internals differ). */
   static for(engine: AbstractEngine): PipelineWarm | null {
@@ -167,7 +172,10 @@ export class PipelineWarm {
       const state = self.prepare(this, fillMode)
       if (self.ghostDepth > 0) return
       if (state === 'cached') return draw.call(this, drawType, fillMode, start, count, instancesCount)
-      if (play) self.skippedInPlay++
+      if (play) {
+        self.skippedInPlay++
+        if (self.skipLog && drawingMesh) self.skipLog.set(drawingMesh.name, (self.skipLog.get(drawingMesh.name) ?? 0) + 1)
+      }
       else self.skipped++
     }
   }
