@@ -43,15 +43,26 @@ interface RetargetedClip {
 }
 
 /**
- * Rebuilt clips per spec (one spec object per licensed glb, shared by its actors) and source clip + pack: the retarget
- * (FK of both skeletons per frame, the IK) runs once per body file, not once per actor (100 players would redo it 100
+ * Rebuilt clips per spec content (the skeleton: every body file with the same rest skeleton and mapping shares them,
+ * the male and female bodies and their outfit exports alike; Overall Pass, docs/PERF_OVERALL.md: keyed by the spec
+ * object it ran once per body file, ≈ 30 % of the game's garbage on the route) and source clip + pack: the retarget
+ * (FK of both skeletons per frame, the IK) runs once per skeleton, not once per actor (100 players would redo it 100
  * times), and the actors share the Animation objects, so the crowd tier's VAT bakes each clip once per skeleton.
  */
-const retargetCache = new WeakMap<RetargetSpec, Map<string, RetargetedClip>>()
+const retargetCache = new Map<string, Map<string, RetargetedClip>>()
+const specKeys = new WeakMap<RetargetSpec, string>()
+
+/** The spec's content as a key (computed once per spec object). */
+export function retargetSpecKey(spec: RetargetSpec): string {
+  let k = specKeys.get(spec)
+  if (k === undefined) specKeys.set(spec, (k = JSON.stringify(spec)))
+  return k
+}
 
 export function retargetGroup(src: AnimationGroup, name: string, rt: Retargeter, joints: ReadonlyMap<string, TransformNode>, scene: Scene, opts: RetargetGroupOptions = {}): AnimationGroup {
-  let bySpec = retargetCache.get(rt.spec)
-  if (!bySpec) retargetCache.set(rt.spec, (bySpec = new Map()))
+  const specKey = retargetSpecKey(rt.spec)
+  let bySpec = retargetCache.get(specKey)
+  if (!bySpec) retargetCache.set(specKey, (bySpec = new Map()))
   const key = `${src.uniqueId}|${opts.pack ?? ''}|${opts.partial ?? ''}|${name}`
   let clip = bySpec.get(key)
   if (!clip) bySpec.set(key, (clip = retargetClip(src, name, rt, opts)))
