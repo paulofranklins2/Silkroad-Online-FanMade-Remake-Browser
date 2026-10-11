@@ -28,4 +28,10 @@ export const enGpu = {
   // A software WebGPU adapter (gpu-help.ts showSoftwareGpuWarning).
   'gpu.software.title': 'No graphics card in use',
   'gpu.software.text': 'The browser is drawing the game without your graphics card (software rendering), so it will run very slowly.',
+  // Running on the processor's graphics (gpu-help.ts showIntegratedGpuNotice; gpu-integrated.ts).
+  'gpu.igpu.title': 'The game is using your processor\'s graphics',
+  'gpu.igpu.text': 'Your browser draws the game with {gpu}, the graphics built into the processor. If this PC also has a graphics card, the game runs much faster on it.',
+  'gpu.igpu.fix': 'To switch: open Windows Settings → System → Display → Graphics, find your browser (Chrome or Edge; add it with "Browse" if it is not listed), choose Options → High performance, and save.',
+  'gpu.igpu.restart': 'Then close every browser window and open the game again.',
+  'gpu.igpu.dontShow': 'Don\'t show again',
 } satisfies Record<string, string>

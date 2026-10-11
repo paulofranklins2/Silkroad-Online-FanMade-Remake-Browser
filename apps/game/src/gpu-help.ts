@@ -94,3 +94,24 @@ export function showSoftwareGpuWarning(art: Art): () => void {
   document.body.append(box)
   return close
 }
+
+/**
+ * The integrated-GPU notice (gpu-integrated.ts): the game runs on the processor's graphics; how to switch the browser to
+ * the graphics card. `dontShow` remembers the choice for good; Close hides it for this session.
+ */
+export function showIntegratedGpuNotice(art: Art, gpuName: string, dontShow: () => void): () => void {
+  const box = el('div', 'gpu-notice gpu-help gpu-integrated')
+  box.setAttribute('role', 'status')
+  const close = () => box.remove()
+  const buttons = el('div', 'gpu-help-buttons')
+  buttons.append(
+    button(art, { label: t('gpu.igpu.dontShow') }, () => {
+      dontShow()
+      close()
+    }),
+    button(art, { label: t('gpu.help.close'), primary: true }, close),
+  )
+  box.append(el('div', 'gpu-help-title', t('gpu.igpu.title')), el('p', '', t('gpu.igpu.text', { gpu: gpuName })), el('p', '', t('gpu.igpu.fix')), el('p', '', t('gpu.igpu.restart')), buttons)
+  document.body.append(box)
+  return close
+}

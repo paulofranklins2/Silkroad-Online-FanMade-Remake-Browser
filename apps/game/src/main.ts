@@ -3,7 +3,8 @@ import { GameAudio, setGameAudio } from './audio/index.ts'
 import { installUiSounds } from './audio/ui-sounds.ts'
 import { loadCatalog } from './content/catalog.ts'
 import { createEngine, WebGpuUnavailableError, type EngineResult } from './engine.ts'
-import { showSoftwareGpuWarning, showWebGpuRequired } from './gpu-help.ts'
+import { showIntegratedGpuNotice, showSoftwareGpuWarning, showWebGpuRequired } from './gpu-help.ts'
+import { IGPU_DISMISSED_KEY, IGPU_SHOWN_KEY, browserGpuName, igpuNotice } from './gpu-integrated.ts'
 import { installGpuLossGuard } from './gpu-loss.ts'
 import { installBlackWatchdog } from './gpu-watchdog.ts'
 import { resumeSession } from './net/resume.ts'
@@ -44,6 +45,32 @@ async function main(): Promise<void> {
   if (engineResult.software) {
     console.warn('[engine] WebGPU runs on a software adapter: no graphics card in use')
     showSoftwareGpuWarning(art)
+  } else {
+    // The processor's graphics while a graphics card may be there (gpu-integrated.ts): how to switch, once per session
+    // on a likely dual-GPU PC until "Don't show again", once ever otherwise.
+    const gpuName = browserGpuName()
+    const store = (f: () => Storage) => {
+      try {
+        return f()
+      } catch {
+        return null
+      }
+    }
+    const local = store(() => localStorage)
+    const session = store(() => sessionStorage)
+    const n = igpuNotice(gpuName, local, session)
+    if (n.show) {
+      console.info(`[engine] running on integrated graphics: ${gpuName}`)
+      try {
+        session?.setItem(IGPU_SHOWN_KEY, '1')
+        if (!n.likelyDual) local?.setItem(IGPU_DISMISSED_KEY, '1')
+      } catch {}
+      showIntegratedGpuNotice(art, gpuName, () => {
+        try {
+          local?.setItem(IGPU_DISMISSED_KEY, '1')
+        } catch {}
+      })
+    }
   }
   console.info(`[engine] ${engineResult.kind}; characters from ${catalog.source} (${catalog.characters.length}); ui art ${art.manifest ? 'loaded' : 'missing'}; fonts ${Object.entries(fonts).map(([k, ok]) => `${k}:${ok ? 'ok' : 'fallback'}`).join(' ')}`)
 
