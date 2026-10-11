@@ -52,8 +52,10 @@ export interface RetargetSpec {
 // --- quaternion / vector math --------------------------------------------------------------------------------------
 
 export function qmul(a: Quat, b: Quat): Quat {
-  const [ax, ay, az, aw] = a
-  const [bx, by, bz, bw] = b
+  // indexed, not destructured: the retarget calls this millions of times and the destructuring's iterators were 13 %
+  // of the game's garbage on the route bench (docs/PERF_OVERALL.md)
+  const ax = a[0], ay = a[1], az = a[2], aw = a[3]
+  const bx = b[0], by = b[1], bz = b[2], bw = b[3]
   return [
     aw * bx + ax * bw + ay * bz - az * by,
     aw * by - ax * bz + ay * bw + az * bx,

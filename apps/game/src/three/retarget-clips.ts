@@ -174,8 +174,9 @@ function retargetClip(src: AnimationGroup, name: string, rt: Retargeter, opts: R
 }
 
 function mulQ(a: Quat, b: Quat): Quat {
-  const [ax, ay, az, aw] = a
-  const [bx, by, bz, bw] = b
+  // indexed, not destructured (no iterator garbage: retarget.ts qmul)
+  const ax = a[0], ay = a[1], az = a[2], aw = a[3]
+  const bx = b[0], by = b[1], bz = b[2], bw = b[3]
   return [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz]
 }
 function rotP(q: Quat, v: Vec3): Vec3 {
