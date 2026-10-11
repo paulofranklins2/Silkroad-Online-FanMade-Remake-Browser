@@ -3565,11 +3565,25 @@ export class CharacterActor {
     scene.stopAnimation = function (this: Scene, target: unknown, ...rest: unknown[]) {
       if (!mine.has(target)) (stop as (...a: unknown[]) => void).call(this, target, ...rest)
     } as Scene['stopAnimation']
+    // Round 6: each mesh's dispose also resets the scene's active-mesh and rendering-group lists (≈ 0.5 ms each, 11 ms an
+    // actor): once for the whole actor, after its meshes are gone (the same lists, emptied the same way).
+    const S = scene as unknown as Record<'freeActiveMeshes' | 'freeRenderingGroups', () => void>
+    const ownFree = { a: Object.prototype.hasOwnProperty.call(S, 'freeActiveMeshes'), r: Object.prototype.hasOwnProperty.call(S, 'freeRenderingGroups') }
+    const freeActive = S.freeActiveMeshes
+    const freeGroups = S.freeRenderingGroups
+    S.freeActiveMeshes = () => {}
+    S.freeRenderingGroups = () => {}
     try {
       this.disposeNow()
     } finally {
       if (own) scene.stopAnimation = stop
       else delete (scene as { stopAnimation?: unknown }).stopAnimation
+      if (ownFree.a) S.freeActiveMeshes = freeActive
+      else delete (S as Partial<typeof S>).freeActiveMeshes
+      if (ownFree.r) S.freeRenderingGroups = freeGroups
+      else delete (S as Partial<typeof S>).freeRenderingGroups
+      S.freeActiveMeshes()
+      S.freeRenderingGroups()
     }
   }
 
