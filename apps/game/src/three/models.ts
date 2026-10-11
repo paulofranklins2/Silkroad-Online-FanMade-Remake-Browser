@@ -1080,6 +1080,28 @@ interface PooledAnimation {
 let pooledInstalled = false
 
 /** Installs the pooled interpolation on Animation.prototype (idempotent). */
+/**
+ * Removes `gone` from every light's includedOnlyMeshes / excludedMeshes and every shadow generator's render list, one
+ * pass per list (CharacterActor.dispose). The lists are compacted in place without their observed splice; a list this
+ * empties gets the notification Babylon's own splice would have sent (a render list going empty re-marks the lights).
+ */
+export function dropFromLightLists(scene: Scene, gone: ReadonlySet<unknown>): void {
+  const compact = (list: unknown[] | null | undefined): void => {
+    if (!list || !list.length) return
+    let n = 0
+    for (let i = 0; i < list.length; i++) if (!gone.has(list[i])) list[n++] = list[i]
+    if (n === list.length) return
+    list.length = n
+    if (n === 0) list.splice(0, 0)
+  }
+  for (const light of scene.lights) {
+    compact(light.includedOnlyMeshes)
+    compact(light.excludedMeshes)
+    const gens = light.getShadowGenerators()
+    if (gens) for (const g of gens.values()) compact(g.getShadowMap()?.renderList)
+  }
+}
+
 export function installPooledInterpolation(): void {
   if (pooledInstalled) return
   pooledInstalled = true
@@ -3535,6 +3557,9 @@ export class CharacterActor {
       for (let i = 0; i < active.length; i++) if ((active[i] as unknown as { _runtimeAnimations: unknown[] })._runtimeAnimations.length > 0) active[n++] = active[i]!
       active.length = n
     }
+    // Round 4: each mesh's dispose also walks every light's include / exclude list and every shadow map's render list
+    // and splices itself out (20-40 ms an actor): the actor's meshes leave those lists here, in one pass per list.
+    dropFromLightLists(scene, mine)
     const own = Object.prototype.hasOwnProperty.call(scene, 'stopAnimation')
     const stop = scene.stopAnimation
     scene.stopAnimation = function (this: Scene, target: unknown, ...rest: unknown[]) {
