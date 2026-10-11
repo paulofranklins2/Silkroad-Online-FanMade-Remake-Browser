@@ -1231,6 +1231,8 @@ export const GAMEPLAY_REQUESTS: readonly GameplayRequest[] = [
 export type ActionFailReason =
   /** The target/item/NPC/slot content does not exist (or is not visible to you). */
   | 'not_found'
+  /** The PvP cape cannot come off yet (outside town, within 5 minutes of the last PvP hit). */
+  | 'pvp_locked'
   /** Target cannot be attacked (NPC, yourself, a player without PvP, an invisible GM). */
   | 'invalid_target'
   /** Already dead. */
