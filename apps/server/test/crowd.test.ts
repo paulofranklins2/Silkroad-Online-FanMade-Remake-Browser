@@ -6,6 +6,7 @@ import { CROWD_SWAP_M, CROWD_SWAPS_PER_PASS, FOE_MEMORY_MS, World, type Player }
 function setup(n: number, max = 10, spacing = 1) {
   const w = new World('jangan', 5, 20, null)
   w.maxVisiblePlayers = max
+  w.crowdRepickPasses = 1
   const inbox = new Map<number, ServerMessage[]>()
   const add = (k: number, x: number, z: number): Player => {
     const msgs: ServerMessage[] = []
@@ -104,6 +105,20 @@ describe('crowd cap', () => {
     w.updateInterest(Date.now())
     expect(seen(viewer)).toHaveLength(30)
   })
+})
+
+it('re-picks are staggered: a viewer re-picks its crowd every CROWD_REPICK_PASSES passes', () => {
+  const { w, viewer, others, seen } = setup(15, 10)
+  w.crowdRepickPasses = 5
+  others.forEach((p, i) => (p.pos = i < 10 ? [60 + 5 * i, 0, 0] : [125, 0, 0]))
+  const now = Date.now()
+  w.updateInterest(now)
+  const late = others[14]!
+  late.pos = [1, 0, 0]
+  let passes = 0
+  while (!seen(viewer).includes(late.id) && passes < 10) w.updateInterest(now + 200 * ++passes)
+  expect(passes).toBeGreaterThan(0)
+  expect(passes).toBeLessThanOrEqual(5)
 })
 
 describe('local chat range', () => {

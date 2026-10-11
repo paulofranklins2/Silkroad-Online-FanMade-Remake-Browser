@@ -315,6 +315,11 @@ export const MAX_VISIBLE_PLAYERS = 100
 export const CROWD_SWAP_M = 30
 /** At most this many shown players are swapped for nearer ones per viewer per interest pass (free slots fill at once). */
 export const CROWD_SWAPS_PER_PASS = 1
+/**
+ * A viewer's crowd is re-picked every this many interest passes (1 s at INTEREST_MS 200), staggered by viewer id, not
+ * every pass: picking is the costly part of a crowded pass. Must-see players show at once regardless (crowded()).
+ */
+export const CROWD_REPICK_PASSES = 5
 /** A player fight keeps both sides visible to each other this long after the last hit (ms). */
 export const FOE_MEMORY_MS = 15_000
 
@@ -354,6 +359,8 @@ export class World {
   viewRange = DEFAULT_VIEW_RANGE
   /** Crowd cap (0 = off): see Player.crowd. */
   maxVisiblePlayers = MAX_VISIBLE_PLAYERS
+  /** CROWD_REPICK_PASSES (tests set 1). */
+  crowdRepickPasses = CROWD_REPICK_PASSES
   /**
    * Gameplay's "always show" rule on top of the built-in one (targets, foes): party and guild members (gameplay.ts).
    */
@@ -946,6 +953,8 @@ export class World {
    * one town that was ~half a million positionAt calls per pass). Null outside the pass.
    */
   private posCache: Map<Entity | Mover, Vec3> | null = null
+  /** Interest passes run (the crowd re-pick stagger). */
+  private interestPasses = 0
 
   /** Recomputes every player's view, using a uniform grid so the cost grows with nearby entities only. */
   updateInterest(now: number): void {
@@ -960,6 +969,7 @@ export class World {
   }
 
   private interestPass(now: number, cache: Map<Entity | Mover, Vec3>): void {
+    this.interestPasses++
     const cell = Math.max(16, this.viewRange)
     const grid = new Map<string, Entity[]>()
     const key = (cx: number, cz: number) => `${cx},${cz}`
@@ -978,7 +988,7 @@ export class World {
       const cz = Math.floor(z / cell)
       const near: Entity[] = []
       for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) near.push(...(grid.get(key(cx + i, cz + j)) ?? []))
-      this.pickCrowd(v, near, now)
+      if (v.crowd === undefined || (this.interestPasses + v.id) % this.crowdRepickPasses === 0) this.pickCrowd(v, near, now)
       this.refreshViewer(v, near, now)
     }
   }
