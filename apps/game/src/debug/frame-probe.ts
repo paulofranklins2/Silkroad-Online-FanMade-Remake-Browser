@@ -207,9 +207,12 @@ export class FrameProbe {
     eng.onEndFrameObservable.add(c('submit', 'bjs.endFrame(submit)'), -1, true)
     // every other observer of the frame, each under its own name
     const S = scene as unknown as Record<string, Observable<unknown>>
-    for (const n of ['onBeforeRenderObservable', 'onAfterRenderObservable', 'onBeforeAnimationsObservable', 'onAfterAnimationsObservable', 'onBeforeCameraRenderObservable', 'onAfterCameraRenderObservable', 'onBeforeRenderTargetsRenderObservable', 'onAfterRenderTargetsRenderObservable', 'onBeforeDrawPhaseObservable', 'onAfterDrawPhaseObservable', 'onAfterActiveMeshesEvaluationObservable']) {
+    for (const n of ['onBeforeRenderObservable', 'onAfterRenderObservable', 'onBeforeAnimationsObservable', 'onAfterAnimationsObservable', 'onBeforeCameraRenderObservable', 'onAfterCameraRenderObservable', 'onBeforeRenderTargetsRenderObservable', 'onAfterRenderTargetsRenderObservable', 'onBeforeDrawPhaseObservable', 'onAfterDrawPhaseObservable', 'onAfterActiveMeshesEvaluationObservable', 'onMeshRemovedObservable', 'onNewMeshAddedObservable', 'onTransformNodeRemovedObservable', 'onNewTransformNodeAddedObservable']) {
       this.wrapObservable(S[n], 'obs.' + n.replace(/^on|Observable$/g, ''), n === 'onBeforeRenderObservable' ? cb => (/timeline\.tick/.test(String(cb)) ? 'game.frame' : null) : undefined)
     }
+    // what a mesh's dispose costs besides the observers: the scene's list removal
+    this.wrap(scene, 'removeMesh', 'bjs.scene.removeMesh')
+    this.wrap(scene, 'removeTransformNode', 'bjs.scene.removeTransformNode')
     const E = eng as unknown as Record<string, Observable<unknown>>
     for (const n of ['onBeginFrameObservable', 'onEndFrameObservable']) this.wrapObservable(E[n], 'obs.' + n.replace(/^on|Observable$/g, ''))
   }

@@ -11,7 +11,7 @@
  * Every leg sets the probe's tag, so each spike says where it happened. Runs on the display's own frame pacing
  * (requestAnimationFrame: the frames the player sees), not the uncapped pump of `measure`.
  */
-import { AbstractMesh, AnimationGroup, EngineInstrumentation, Material, Skeleton, TransformNode, type Observer, type Scene } from '@babylonjs/core'
+import { AbstractMesh, AnimationGroup, EngineInstrumentation, Geometry, Material, Mesh, Skeleton, TransformNode, type Observer, type Scene } from '@babylonjs/core'
 import type { World } from '@sro/world-render'
 import { CharacterActor, ModelLibrary } from '../three/models.ts'
 import { CrowdBudget } from '../world/crowd-budget.ts'
@@ -69,6 +69,8 @@ export function instrumentClasses(probe: FrameProbe): void {
   probe.wrapProto(TransformNode.prototype, ['dispose'], 'bjs.node')
   probe.wrapProto(Skeleton.prototype, ['dispose'], 'bjs.skeleton')
   probe.wrapProto(Material.prototype, ['dispose'], 'bjs.material')
+  probe.wrapProto(Mesh.prototype, ['releaseSubMeshes'], 'bjs.mesh')
+  probe.wrapProto(Geometry.prototype, ['releaseForMesh'], 'bjs.geometry')
   probe.wrapProto(EffectList.prototype, ['update'], 'effects')
   probe.wrapProto(WorldGraphics.prototype, ['frame'], 'graphics')
   probe.wrapProto(HudMinimap.prototype, ['update'], 'minimap')
