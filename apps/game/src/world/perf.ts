@@ -50,6 +50,11 @@ export const PERF = {
   effectsPersistent: true,
   /** ShaderMaterial readiness answered from a per-mesh signature instead of a rebuilt define string (three/shader-ready-cache.ts). */
   shaderReadyCache: true,
+  /**
+   * The licensed character glbs' embedded images shared by content and made at 1024² on Medium and below
+   * (three/gltf-texture-share.ts; round 7: 73 uncompressed 2048² copies were 1.56 GB with 8 players). Read at each load.
+   */
+  licensedTextureShare: true,
 }
 
 export type PerfSwitch = keyof typeof PERF

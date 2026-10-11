@@ -18,6 +18,8 @@ import { serversScreen } from './screens/servers.ts'
 import { splashScreen } from './screens/splash.ts'
 import { worldScreen } from './screens/world.ts'
 import { applyGraphics, settings } from './settings.ts'
+import { TEXTURE_SHARE, registerTextureShare } from './three/gltf-texture-share.ts'
+import { PERF } from './world/perf.ts'
 import { loadGameText, t } from './i18n/index.ts'
 import { Art } from './ui/art.ts'
 import { el } from './ui/dom.ts'
@@ -41,6 +43,15 @@ async function main(): Promise<void> {
   const engineResult: EngineResult = made
   // Options → Graphics → Resolution (UX_GAPS R4), now and on every change.
   applyGraphics(engineResult.engine)
+  // The licensed characters' textures: shared by content, 1024² on Medium and below (three/gltf-texture-share.ts).
+  registerTextureShare()
+  const textureSize = () => {
+    TEXTURE_SHARE.enabled = PERF.licensedTextureShare
+    const preset = settings.get().graphics.preset
+    TEXTURE_SHARE.maxSize = preset === 'high' || preset === 'ultra' ? Infinity : 1024
+  }
+  textureSize()
+  settings.onChange(textureSize)
   const fonts = await loadFonts(art.manifest)
   if (engineResult.software) {
     console.warn('[engine] WebGPU runs on a software adapter: no graphics card in use')
