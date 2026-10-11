@@ -198,9 +198,15 @@ Round 4's pair showed the prewarm costing more 33–50 ms frames than it saved. 
 
 The bench also stops (and closes its Chrome) below 900 MB free RAM: the shared PC crashed twice mid-bench.
 
-**Measurement pending**: the before / after pair (switches off: `--query perfoff=pipelinesInPlay,prewarmNew,effectsPersistent,shaderReadyCache`)
-needs < 20 % CPU, ≥ 6 GB free and no other helper's bench running; every attempt so far was stopped by the memory guard
-when other benches started (runner: `work/tmp/routebench-r5.sh`).
+**Measured (one run, , 15 % machine CPU, 2 bots, 1280 × 720 for memory)**: CPU per frame p50 9.3 / p95 17.4 ms
+(round 4 after: 12.0 / 36.0), no pipeline made at a draw, despawn p95 2.6 / max 29 ms (the probe:  18,
+ with its dispose observers 11,  6 ms in that one), 1414 meshes prewarmed in idle
+time. **But the GPU frame time is now p50 28 / p95 39 ms** (2.2 / 3.6 in every earlier run): the frames are GPU-bound
+(456 over 33 ms, 51 over 100 ms with 10–20 ms of JS). Not attributed yet: the isolation runs (,
+) and the switches-off pair could not finish: **the bench page now needs 7–7.7 GB** (Chrome's GPU
+process 5–5.3 GB, the renderer 1.7–2.4 GB) and the shared PC has 7–9 GB free, so the memory guard stopped them, with
+the switches off as well (so the footprint is not round 5's). Garbage 54 MB/s in that run: the idle prewarm compiles
+every hidden mesh (1414, LODs included; PBR code injection 16.5 % of the sampled allocations).
 
 ## Plan (next)
 
