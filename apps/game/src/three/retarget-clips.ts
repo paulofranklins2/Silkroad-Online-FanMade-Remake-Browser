@@ -164,12 +164,12 @@ function retargetClip(src: AnimationGroup, name: string, rt: Retargeter, opts: R
   for (const [j, ks] of rot) {
     if (keyedTarget && !keyedTarget.has(j)) continue
     const a = new Animation(`${name}:${j}`, 'rotationQuaternion', fps, Animation.ANIMATIONTYPE_QUATERNION, Animation.ANIMATIONLOOPMODE_CYCLE)
-    a.setKeys(ks)
+    a.setKeys(thinKeys(ks))
     out.push({ target: j, anim: a })
   }
   if (!partial) {
     const a = new Animation(`${name}:${rt.spec.hip.target}:pos`, 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CYCLE)
-    a.setKeys(hip)
+    a.setKeys(thinKeys(hip))
     out.push({ target: rt.spec.hip.target, anim: a })
   }
   for (const [s, k] of sockets) {
@@ -182,6 +182,25 @@ function retargetClip(src: AnimationGroup, name: string, rt: Retargeter, opts: R
     out.push({ target: s, anim: r })
   }
   return { tracks: out, from, to }
+}
+
+/**
+ * Drops the keys inside a run of equal values (a joint that holds still: fingers, the off hand, most of a partial
+ * clip's body): interpolating between the run's first and last key gives the same value at every frame in between, so
+ * the clip plays exactly as before with fewer key objects (Overall Pass round 7: the retargeted clips were ≈ 165 MB
+ * of the JS heap, one Quaternion per joint per frame).
+ */
+export function thinKeys<T extends { frame: number; value: Quaternion | Vector3 }>(keys: T[]): T[] {
+  if (keys.length < 3) return keys
+  const eq = (a: Quaternion | Vector3, b: Quaternion | Vector3) =>
+    Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.z - b.z) < 1e-6 && Math.abs(((a as Quaternion).w ?? 0) - ((b as Quaternion).w ?? 0)) < 1e-6
+  const out: T[] = [keys[0]!]
+  for (let i = 1; i < keys.length - 1; i++) {
+    if (eq(keys[i]!.value, keys[i - 1]!.value) && eq(keys[i]!.value, keys[i + 1]!.value)) continue
+    out.push(keys[i]!)
+  }
+  out.push(keys[keys.length - 1]!)
+  return out
 }
 
 function mulQ(a: Quat, b: Quat): Quat {
