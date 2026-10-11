@@ -2478,7 +2478,7 @@ whole `NvmFile` (§5.4).
 The user (Overall Pass item 7): the beaches were unreachable, ringed by retail's end-of-map mountains, and the Jobs
 trade route has posts on the coast. §9.4's "walkable beaches all round later" is now built:
 
-- **Walkable bounds.** The preset's new `walkable` rectangle (X 153–176 × Z 86–105) is written as `manifest.bounds`
+- **Walkable bounds.** The preset's new `walkable` rectangle (X 153–176 × Z 87–105, the emitted regions) is written as `manifest.bounds`
   (the server's clamp) and is the World Editor's force-open limit; `playable` (X 156–174 × Z 90–102) stays the coast's
   frozen set and `stream.playable`. Nothing outside the navmesh is walkable, so the shoreline is the limit.
 - **Ring rule** (`coast/navgen.ts`): a tile on moved ground is open exactly when it is at most knee-deep and no steeper

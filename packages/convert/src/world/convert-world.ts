@@ -220,7 +220,7 @@ export const WORLD_PRESETS: Readonly<Record<string, WorldPreset>> = {
    */
   'jangan-fields': {
     x0: 155, x1: 175, z0: 89, z1: 103, centre: { x: 168, z: 97 }, spawnTeleport: 'GATE_CH',
-    playable: { x0: 156, x1: 174, z0: 90, z1: 102 }, walkable: { x0: 153, x1: 176, z0: 86, z1: 105 }, stream: true, places: true, displayName: 'Jangan', coast: JANGAN_COAST_CONFIG,
+    playable: { x0: 156, x1: 174, z0: 90, z1: 102 }, walkable: { x0: 153, x1: 176, z0: 87, z1: 105 }, stream: true, places: true, displayName: 'Jangan', coast: JANGAN_COAST_CONFIG,
     environmentOverrides: JANGAN_ENV_OVERRIDES, town: JANGAN_TOWN, edits: JANGAN_EDITS, trees: TREES_SWAP_FILE,
     remasterModels: JANGAN_REMASTER_MODELS,
   },
