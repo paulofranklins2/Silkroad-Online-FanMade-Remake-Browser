@@ -94,3 +94,38 @@ export function sampleMove(move: MoveState, t: number): MoveSample {
 export function yawOf(dx: number, dz: number): number {
   return Math.atan2(dx, dz)
 }
+
+/** Server corrections glide out with this time constant (s): ~95 % gone in 3 tau. */
+export const CORRECTION_TAU_S = 0.08
+/** A correction farther than this (m) snaps (a teleport, a long desync), as before. */
+export const CORRECTION_SNAP_M = 4
+
+/**
+ * docs/NETWORK_AUDIT.md C1: a server correction (a stop short of where an entity was drawn, a redirect) moves the
+ * logical position at once while the drawn one glides there. `set` turns the gap between where it was drawn and the
+ * corrected position into a render offset (x/z) that `decay` shrinks every frame; gaps over CORRECTION_SNAP_M snap.
+ */
+export class CorrectionOffset {
+  x = 0
+  z = 0
+
+  /** `drawnX/Z`: the logical position before the correction (the offset already in progress is added); `to`: after. */
+  set(drawnX: number, drawnZ: number, to: Vec3): void {
+    const dx = drawnX + this.x - to[0]
+    const dz = drawnZ + this.z - to[2]
+    const far = dx * dx + dz * dz > CORRECTION_SNAP_M * CORRECTION_SNAP_M
+    this.x = far ? 0 : dx
+    this.z = far ? 0 : dz
+  }
+
+  decay(dt: number): void {
+    if (!this.x && !this.z) return
+    const k = Math.exp(-dt / CORRECTION_TAU_S)
+    this.x = Math.abs(this.x * k) < 1e-3 ? 0 : this.x * k
+    this.z = Math.abs(this.z * k) < 1e-3 ? 0 : this.z * k
+  }
+
+  clear(): void {
+    this.x = this.z = 0
+  }
+}

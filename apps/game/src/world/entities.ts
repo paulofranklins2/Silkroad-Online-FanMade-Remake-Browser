@@ -8,7 +8,7 @@ import { heightScale } from '@sro/appearance'
 import { JUMP_LATE_DROP_MS, defaultLook, rarityOf, variantScale, type CharLook, type EntityState, type EquipSlot, type JobBadge, type MoveState, type StarterWeapon, type Vec3 } from '@sro/shared'
 import { weaponFamilyOf, type Catalog } from '../content/catalog.ts'
 import { t, type StringKey } from '../i18n/index.ts'
-import { sampleMove } from '../net/clock.ts'
+import { CorrectionOffset, sampleMove } from '../net/clock.ts'
 import type { BaseClip, CharacterActor, DeathClip, Look, ModelLibrary } from '../three/models.ts'
 import { PILOT_MODEL, pilotPresetOf, type PilotPreset } from '../three/pilot-char.ts'
 import { licensedAvailable, licensedChoiceFor, licensedEnabled, licensedModel, type LicensedChoice } from '../three/licensed-char.ts'
@@ -105,6 +105,10 @@ export class EntityView {
   state: EntityState
   move: MoveState | undefined
   readonly pos = new Vector3()
+  /** Render offset of a server correction in progress (net/clock.ts CorrectionOffset). */
+  readonly correction = new CorrectionOffset()
+  /** Server time of the last update (setMove samples the new move there). */
+  private lastNow = 0
   yaw: number
   targetYaw: number
   moving = false
@@ -363,17 +367,26 @@ export class EntityView {
   }
 
   setMove(move: MoveState): void {
+    // a redirect starts where the server had the entity; the gap to where we drew it is blended out (no snap)
+    if (this.lastNow > 0) this.correct(sampleMove(move, this.lastNow).pos)
     this.move = move
   }
 
   stop(pos: Vec3, yaw: number): void {
+    this.correct(pos)
     this.move = undefined
     this.pos.set(pos[0], pos[1], pos[2])
     this.targetYaw = yaw
   }
 
+  /** docs/NETWORK_AUDIT.md C1: the gap to a server correction glides out instead of snapping. */
+  private correct(to: Vec3): void {
+    this.correction.set(this.pos.x, this.pos.z, to)
+  }
+
   /** Warp (teleport, summon, respawn): snap to `pos` and `yaw`, dropping any move in progress. */
   warp(pos: Vec3, yaw: number): void {
+    this.correction.clear()
     this.move = undefined
     this.moving = false
     this.pos.set(pos[0], pos[1], pos[2])
@@ -663,6 +676,8 @@ export class EntityView {
 
   /** Advances interpolation to server time `now`; false once a fade-out has finished. */
   update(now: number, dt: number): boolean {
+    this.lastNow = now
+    this.correction.decay(dt)
     if (this.move) {
       const s = sampleMove(this.move, now)
       this.pos.set(s.pos[0], s.pos[1], s.pos[2])
@@ -673,7 +688,9 @@ export class EntityView {
       this.moving = false
     }
     if (!this.dead) this.yaw = angleLerp(this.yaw, this.targetYaw, Math.min(1, dt * TURN_RATE))
-    this.root.position.set(this.pos.x, this.ctx.heightAt(this.pos.x, this.pos.z), this.pos.z)
+    const rx = this.pos.x + this.correction.x
+    const rz = this.pos.z + this.correction.z
+    this.root.position.set(rx, this.ctx.heightAt(rx, rz), rz)
     if (this.actor) {
       // PERF2: the player's own character is never animation-LOD'd (three/models.ts ANIM_LOD), even zoomed out.
       this.actor.lodFull = this.isSelf
