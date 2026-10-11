@@ -195,7 +195,7 @@ export class PipelineWarm {
     const held = new Map<AbstractMesh, { frames: number; undo: () => void }>()
     let frame = 0
     const added: Observer<AbstractMesh> | null = scene.onNewMeshAddedObservable.add(m => {
-      if (PERF.prewarmNew && queue.length < 16 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
+      if (PERF.prewarmNew && queue.length < 64 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
     })
     const release = (m: AbstractMesh) => {
       held.get(m)?.undo()
@@ -218,8 +218,17 @@ export class PipelineWarm {
           continue
         }
         const m = q.m
-        if (m.isDisposed() || !m.isEnabled() || !m.isVisible || !m.material || m.getTotalVertices() === 0 || m.alwaysSelectAsActiveMesh) {
+        if (m.isDisposed() || m.getTotalVertices() === 0 || m.alwaysSelectAsActiveMesh) {
           queue.splice(i, 1)
+          continue
+        }
+        if (!m.isEnabled() || !m.isVisible || !m.material) {
+          // made hidden, shown later (the stockade, the town folk's parts, a LOD): waits like a mesh out of reach
+          if (++q.waits > 600) queue.splice(i, 1)
+          else {
+            q.at = frame + 15
+            i++
+          }
           continue
         }
         if (eye && fwd) {
@@ -229,8 +238,8 @@ export class PipelineWarm {
           const d = Math.hypot(dx, dy, dz)
           const r = m.getBoundingInfo().boundingSphere.radiusWorld
           if (d - r > PREWARM_RADIUS_M || (d > r && (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d < cone)) {
-            // look again in a quarter second; after ≈ 30 s it is left to the in-play skip
-            if (++q.waits > 120) queue.splice(i, 1)
+            // look again in a quarter second; after ≈ 150 s it is left to the in-play skip
+            if (++q.waits > 600) queue.splice(i, 1)
             else {
               q.at = frame + 15
               i++
