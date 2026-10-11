@@ -255,6 +255,40 @@ build, each run under the bench lock at 11–19 % machine CPU:
   dismissible notice explains Windows Settings → System → Display → Graphics → High performance; once per session on a
   likely dual-GPU PC (a desktop processor's minimal graphics) until "Don't show again", once ever otherwise.
 
+## Round 7: memory, the 99 ms frame, the despawn
+
+Measured in the world (8 bots, Medium, 1920 × 1080, RX 9060 XT) with V8's sampling heap profiler from before the page
+loads (work/tmp/heapwatch.mjs: live allocations after a forced GC, by allocating function) and Babylon's texture list:
+
+| What held the memory | Size | Fix | Switch |
+|---|---|---|---|
+| The licensed bodies' embedded images: every outfit glb carries its own copy of the same 2048² body, face and hair images, uncompressed | 73 textures, 1.56 GB of GPU memory | shared by image content, made at 1024² on Medium and below (three/gltf-texture-share.ts): **25 textures, 149 MB**; Babylon's tracked textures 2.54 → 0.95 GB | `PERF.licensedTextureShare` |
+| Every effect's processed shader source (kept for a context restore WebGPU never does here; the persistent effects keep them all) | ≈ 200 MB JS | dropped for ready effects every 10 s (three/cpu-copies.ts), with the raw data of 2D-array / 3D textures | `PERF.trimCpuCopies` |
+| A Vector3 per vertex on every mesh whose bounding info was refreshed (Babylon's `_positions`, for picking; never read by the game) | ≈ 137 MB JS | not built (three/positions-trim.ts); a pick builds points from the geometry on demand | `PERF.trimPositions` |
+| The retargeted clips: a Quaternion per joint per frame | ≈ 165 MB JS | the keys inside runs of equal values dropped (exact playback) | – |
+
+**JS heap 2.1 GB → 0.94 GB** after a GC (the renderer process 3.2 → 1.5–1.9 GB). Left: the retail clip packs' keys
+(≈ 110 MB), the retargeted clips (≈ 90 MB), the encoded glTF images the batcher reads (`_buffer`, kept on purpose).
+
+**Chrome's GPU process stays ≈ 2.7 GB** with the textures down by 1.6 GB: on the discrete GPU the textures live in
+video memory, so its working set is mostly Chrome / Dawn (upload and staging heaps, pipelines, shader caches), not
+something the page holds directly. The < 1.5 GB target is not reached; next: Chrome's own memory dump
+(`chrome://tracing` memory-infra) to see which Dawn allocator holds it.
+
+**The 99–108 ms frame** at ≈ 15.9 s into the route (every run, the same moment): the long animation frame shows 98 ms of
+script in the render-loop callback while the frame itself (begin → end) took 15–20 ms. The probe now also times the
+engine's `beginFrame` and the whole `_renderLoop` (debug/frame-probe.ts) to find what runs around the frame; not yet
+measured (see below).
+
+**Despawn**: Babylon's `Node.dispose` has no guard, and `CharacterActor.dispose` disposed each of its nodes after its
+parent's dispose had already taken it: most nodes went through the whole teardown twice. Now skipped when already
+disposed. With the round-6 list batching the remaining despawn was 35–56 ms (one per route); after this change: not
+yet measured.
+
+**Not measured yet**: every run after these changes was stopped by the bench's memory guard (the page plus its server
+need ≈ 5.5 GB, the PC had 6–7 GB free with another helper's Blender at 1 GB) or kept waiting for the lock. Runner:
+`work/tmp/routebench-r11.sh` (4 bots, switches off vs on).
+
 ## Plan (next)
 
 0. **Prewarm cost** (the 33–50 ms band): compile at most one new effect per frame (an effect compile is the unit, not a
