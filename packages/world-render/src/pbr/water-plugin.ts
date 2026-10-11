@@ -35,6 +35,7 @@ import {
   Texture,
   Vector4,
   type AbstractEngine,
+  type AbstractMesh,
   type BaseTexture,
   type Material,
   type MaterialDefines,
@@ -44,6 +45,7 @@ import {
 } from '@babylonjs/core'
 import { useWindowedLightFalloff } from '../render/babylon-fixes.ts'
 import { rainRingCode, ringTaps } from '../weather/ripples.ts'
+import { cubeLookupCode } from '../ocean/sky-reflection.ts'
 
 export const SRO_WATER_PLUGIN = 'SroWaterPlugin'
 /** Retail frame repeat (m): 4 repeats per 32 m block, as the Classic water. */
@@ -90,6 +92,20 @@ export const WATER_RING_LINE_ALBEDO = 0.32
 export const WATER_ALBEDO_WEIGHT = 0.6
 /** Deep water: the albedo × this at 4 m. */
 export const WATER_DEEP: readonly [number, number, number] = [0.35, 0.5, 0.55]
+
+/**
+ * Overall Pass (AAA water), flowing rivers: the flow layer's period (m), the two-phase flow map's cycle (s; each phase
+ * is pushed along the flow for a cycle, then fades out while the other, half a cycle apart, fades in) and the river's
+ * speed (m/s) at full strength (water.ts `riverFlow`).
+ */
+export const FLOW_PERIOD_M = 4
+export const FLOW_CYCLE_S = 3
+export const FLOW_SPEED_MS = 0.9
+/** The sun's glitter on the retail water (a coarser facet than the sea's: the normal map's 17 m layer), fading with the camera distance (m). */
+export const WATER_GLINT_SLOPE = 0.1
+export const WATER_GLINT_SHARP = 900
+export const WATER_GLINT_GAIN = 40
+export const WATER_GLINT_FADE_M: readonly [number, number] = [30, 120]
 
 /** Amplitude of a block's wave type (unknown types: 1). */
 export function waveAmplitude(wave: number): number {
@@ -174,8 +190,27 @@ const FOAM = `(1.0 - smoothstep(0.05, ${WATER_FOAM_M.toFixed(2)}, sroWD)) * smoo
 const L0 = WATER_NORMAL_LAYERS[0], L1 = WATER_NORMAL_LAYERS[1]
 const v2 = (lang: 'wgsl' | 'glsl', x: number, y: number) => `${lang === 'wgsl' ? 'vec2f' : 'vec2'}(${x.toFixed(3)}, ${y.toFixed(3)})`
 
-const WGSL: Record<string, string> = {
-  CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef SRO_WATER
+/**
+ * The fragment code in one language (Overall Pass, AAA water, on top of RND-W's): the flow map (SRO_WATER_FLOW: the
+ * river's two-phase flow layer and its rapids foam, from the `sroFlow` vertex attribute), the sky cube's reflection
+ * (SRO_WATER_SKY), the sun's glitter (SRO_WATER_GLINT) and the Fresnel blend of the ocean's P-LOOK (ocean-plugin.ts
+ * `blendCode`: the reflected light reaches the screen at full strength through thin water; the background is
+ * weighted by what the surface transmits).
+ */
+function fragCode(lang: 'wgsl' | 'glsl'): Record<string, string> {
+  const w = lang === 'wgsl'
+  const V2 = w ? 'vec2f' : 'vec2', V3 = w ? 'vec3f' : 'vec3'
+  const u = (n: string) => (w ? `uniforms.${n}` : n)
+  const fin = (n: string) => (w ? `fragmentInputs.${n}` : n)
+  const tap = (uv: string) => (w ? `textureSample(sroWaterNormal, sroWaterNormalSampler, ${uv})` : `texture(sroWaterNormal, ${uv})`)
+  const L = (type: string, name: string, value: string) => (w ? `let ${name} = ${value};` : `${type} ${name} = ${value};`)
+  const M = (type: string, name: string, value: string) => (w ? `var ${name} = ${value};` : `${type} ${name} = ${value};`)
+  const pos = fin('vPositionW')
+  const eye = w ? 'scene.vEyePosition.xyz' : 'vEyePosition.xyz'
+  const col = fin('vColor')
+  const n = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v))
+  const defs = w
+    ? `#ifdef SRO_WATER
 var sroWaterFrames: texture_2d_array<f32>;
 var sroWaterFramesSampler: sampler;
 var sroWaterNormal: texture_2d<f32>;
@@ -187,76 +222,22 @@ var<private> sroWGlint: f32;
 var<private> sroWCrown: f32;
 var<private> sroWLine: f32;
 ${rainRingCode('wgsl', 'sroWRing')}#endif
+#ifdef SRO_WATER_FLOW
+varying vSroFlow: vec4f;
+#endif
+#ifdef SRO_WATER_SKY
+var sroWaterSky: texture_cube<f32>;
+var sroWaterSkySampler: sampler;
+var<private> sroWSky: vec3f;
+#endif
 var<private> sroWAlb: vec3f;
 var<private> sroWAlpha: f32;
 var<private> sroWN: vec3f;
+var<private> sroWGl: vec3f;
+var<private> sroWRap: f32;
 #endif
-`,
-  CUSTOM_FRAGMENT_MAIN_BEGIN: `#ifdef SRO_WATER
-{
-  let sroWP = fragmentInputs.vPositionW.xz;
-  let sroWT = uniforms.sroWaterA.y;
-  let sroWF = textureSample(sroWaterFrames, sroWaterFramesSampler, sroWP / ${WATER_FRAME_REPEAT_M.toFixed(1)}, i32(uniforms.sroWaterA.x + 0.5)).rgb;
-  let sroWD = fragmentInputs.vColor.r * 9.0 - 1.0;
-  let sroWAmp = fragmentInputs.vColor.g * 2.0 * uniforms.sroWaterC.w;
-  let sroN0 = textureSample(sroWaterNormal, sroWaterNormalSampler, (sroWP + sroWT * ${v2('wgsl', L0.scroll[0], L0.scroll[1])}) / ${L0.periodM.toFixed(1)}).xy * 2.0 - vec2f(1.0);
-  let sroN1 = textureSample(sroWaterNormal, sroWaterNormalSampler, (sroWP + sroWT * ${v2('wgsl', L1.scroll[0], L1.scroll[1])}) / ${L1.periodM.toFixed(1)}).xy * 2.0 - vec2f(1.0);
-  var sroSlope = (sroN0 + sroN1 * 0.7) * (0.35 * sroWAmp);
-#ifdef SRO_WATER_RIPPLE
-  let sroRu = sroWP * ${WATER_RING_SCALE.toFixed(3)};
-  let sroRr = clamp(uniforms.sroWaterA.z, 0.0, 1.0);
-${ringTaps('wgsl', 'sroWRing', 'sroWaterRipple', 'sroRu', null, null, 'uniforms.sroWaterA.w', 'sroRr', 'sroR')}  let sroRa = smoothstep(0.0, 0.15, sroRr) * (1.0 - smoothstep(${WATER_RING_FADE_M[0].toFixed(1)}, ${WATER_RING_FADE_M[1].toFixed(1)}, distance(scene.vEyePosition.xyz, fragmentInputs.vPositionW)));
-  sroSlope = sroSlope + vec2f(sroR.x, -sroR.y) * (${WATER_RING_GAIN.toFixed(2)} * sroRa);
-  sroWCrown = clamp(sroR.z * sroRa, 0.0, 1.0);
-  sroWLine = clamp(max(sroR.w, 0.0) * sroRa * ${WATER_RING_LINE.toFixed(2)}, 0.0, 1.0);
-  sroWGlint = (max(sroR.w, 0.0) + sroR.z) * sroRa;
-#endif
-  sroWN = normalize(vec3f(sroSlope.x, 1.0, -sroSlope.y));
-  let sroShallow = pow(clamp(sroWF * uniforms.sroWaterB.rgb, vec3f(0.0), vec3f(1.0)), vec3f(2.2)) * ${WATER_ALBEDO_WEIGHT.toFixed(2)};
-#ifdef SRO_WATER_SHORE
-  let sroDeep = clamp(sroWD / 4.0, 0.0, 1.0);
-  let sroFoam = ${FOAM} * clamp(0.6 + sroN0.x, 0.0, 1.0);
-  sroWAlpha = max(clamp(sroWD / ${WATER_SHORE_M.toFixed(2)}, 0.0, 1.0), sroFoam * 0.7);
-  sroWAlb = mix(mix(sroShallow, sroShallow * uniforms.sroWaterC.rgb, sroDeep), vec3f(0.55), sroFoam);
-#else
-  let sroDeep = clamp(fragmentInputs.vColor.a, 0.0, 1.0);
-  sroWAlpha = clamp(fragmentInputs.vColor.a, 0.0, 1.0);
-  sroWAlb = mix(sroShallow, sroShallow * uniforms.sroWaterC.rgb, sroDeep);
-#endif
-}
-#endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_ALBEDO: `#ifdef SRO_WATER
-surfaceAlbedo = sroWAlb;
-#ifdef SRO_WATER_RIPPLE
-surfaceAlbedo = mix(mix(surfaceAlbedo, vec3f(${WATER_RING_LINE_ALBEDO.toFixed(2)}), sroWLine), vec3f(${WATER_CROWN_ALBEDO.toFixed(2)}), sroWCrown * 0.8);
-#endif
-#endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_ALPHA: `#ifdef SRO_WATER
-alpha = sroWAlpha;
-#ifdef SRO_WATER_RIPPLE
-alpha = max(alpha, max(sroWCrown * 0.85, sroWLine * 1.5));
-#endif
-normalW = sroWN;
-#endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_METALLICROUGHNESS: `#ifdef SRO_WATER
-metallicRoughness = vec2f(0.0, uniforms.sroWaterB.w);
-#endif
-`,
-  CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: `#ifdef SRO_WATER
-#ifdef SRO_WATER_RIPPLE
-#ifdef REFLECTION
-finalEmissive = finalEmissive + reflectionOut.environmentRadiance.rgb * (uniforms.vLightingIntensity.z * ${WATER_RING_GLINT.toFixed(2)} * sroWGlint);
-#endif
-#endif
-#endif
-`,
-}
-
-const GLSL: Record<string, string> = {
-  CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef SRO_WATER
+`
+    : `#ifdef SRO_WATER
 uniform highp sampler2DArray sroWaterFrames;
 uniform sampler2D sroWaterNormal;
 #ifdef SRO_WATER_RIPPLE
@@ -265,72 +246,172 @@ float sroWGlint;
 float sroWCrown;
 float sroWLine;
 ${rainRingCode('glsl', 'sroWRing')}#endif
+#ifdef SRO_WATER_FLOW
+varying vec4 vSroFlow;
+#endif
+#ifdef SRO_WATER_SKY
+uniform samplerCube sroWaterSky;
+vec3 sroWSky;
+#endif
 vec3 sroWAlb;
 float sroWAlpha;
 vec3 sroWN;
+vec3 sroWGl;
+float sroWRap;
 #endif
-`,
-  CUSTOM_FRAGMENT_MAIN_BEGIN: `#ifdef SRO_WATER
+`
+  const frames = w
+    ? `textureSample(sroWaterFrames, sroWaterFramesSampler, sroWP / ${WATER_FRAME_REPEAT_M.toFixed(1)}, i32(uniforms.sroWaterA.x + 0.5)).rgb`
+    : `texture(sroWaterFrames, vec3(sroWP / ${WATER_FRAME_REPEAT_M.toFixed(1)}, floor(sroWaterA.x + 0.5))).rgb`
+  const clamp3 = w ? 'clamp(sroWF * uniforms.sroWaterB.rgb, vec3f(0.0), vec3f(1.0)), vec3f(2.2)' : 'clamp(sroWF * sroWaterB.rgb, 0.0, 1.0), vec3(2.2)'
+  const main = `#ifdef SRO_WATER
 {
-  vec2 sroWP = vPositionW.xz;
-  float sroWT = sroWaterA.y;
-  vec3 sroWF = texture(sroWaterFrames, vec3(sroWP / ${WATER_FRAME_REPEAT_M.toFixed(1)}, floor(sroWaterA.x + 0.5))).rgb;
-  float sroWD = vColor.r * 9.0 - 1.0;
-  float sroWAmp = vColor.g * 2.0 * sroWaterC.w;
-  vec2 sroN0 = texture(sroWaterNormal, (sroWP + sroWT * ${v2('glsl', L0.scroll[0], L0.scroll[1])}) / ${L0.periodM.toFixed(1)}).xy * 2.0 - vec2(1.0);
-  vec2 sroN1 = texture(sroWaterNormal, (sroWP + sroWT * ${v2('glsl', L1.scroll[0], L1.scroll[1])}) / ${L1.periodM.toFixed(1)}).xy * 2.0 - vec2(1.0);
-  vec2 sroSlope = (sroN0 + sroN1 * 0.7) * (0.35 * sroWAmp);
+  ${L(V2, 'sroWP', `${pos}.xz`)}
+  ${L('float', 'sroWT', `${u('sroWaterA')}.y`)}
+  ${L(V3, 'sroWF', frames)}
+  ${L('float', 'sroWD', `${col}.r * 9.0 - 1.0`)}
+  ${L('float', 'sroWAmp', `${col}.g * 2.0 * ${u('sroWaterC')}.w`)}
+  ${M(V2, 'sroN0', `${tap(`(sroWP + sroWT * ${v2(lang, L0.scroll[0], L0.scroll[1])}) / ${L0.periodM.toFixed(1)}`)}.xy * 2.0 - ${V2}(1.0)`)}
+  ${M(V2, 'sroN1', `${tap(`(sroWP + sroWT * ${v2(lang, L1.scroll[0], L1.scroll[1])}) / ${L1.periodM.toFixed(1)}`)}.xy * 2.0 - ${V2}(1.0)`)}
+  sroWRap = 0.0;
+#ifdef SRO_WATER_FLOW
+  // AAA water: the river's flow map (two phases half a cycle apart, each pushed along the flow, cross-faded), and the
+  // rapids' foam streaks where the attribute's z says fast and shallow (water.ts riverFlow).
+  ${L('vec4', 'sroFl', fin('vSroFlow'))}
+  ${L('float', 'sroPh', `fract(sroWT / ${n(FLOW_CYCLE_S)})`)}
+  ${L('float', 'sroFw', '1.0 - abs(1.0 - 2.0 * sroPh)')}
+  ${L(V2, 'sroFa', `${tap(`(sroWP - sroFl.xy * (sroPh * ${n(FLOW_CYCLE_S)})) / ${n(FLOW_PERIOD_M)}`)}.xy * 2.0 - ${V2}(1.0)`)}
+  ${L(V2, 'sroFb', `${tap(`(sroWP - sroFl.xy * (fract(sroPh + 0.5) * ${n(FLOW_CYCLE_S)})) / ${n(FLOW_PERIOD_M)} + ${V2}(0.5, 0.31)`)}.xy * 2.0 - ${V2}(1.0)`)}
+  ${L(V2, 'sroFn', 'sroFa * sroFw + sroFb * (1.0 - sroFw)')}
+  sroN0 = mix(sroN0, sroFn * 1.4, sroFl.w);
+  sroN1 = mix(sroN1, ${V2}(sroFn.y, -sroFn.x), sroFl.w * 0.6);
+  sroWRap = sroFl.z * smoothstep(0.25, 0.8, max(sroFa.x * sroFw, sroFb.x * (1.0 - sroFw)) + 0.45 * sroFl.z);
+#endif
+  ${M(V2, 'sroSlope', '(sroN0 + sroN1 * 0.7) * (0.35 * sroWAmp)')}
 #ifdef SRO_WATER_RIPPLE
-  vec2 sroRu = sroWP * ${WATER_RING_SCALE.toFixed(3)};
-  float sroRr = clamp(sroWaterA.z, 0.0, 1.0);
-${ringTaps('glsl', 'sroWRing', 'sroWaterRipple', 'sroRu', null, null, 'sroWaterA.w', 'sroRr', 'sroR')}  float sroRa = smoothstep(0.0, 0.15, sroRr) * (1.0 - smoothstep(${WATER_RING_FADE_M[0].toFixed(1)}, ${WATER_RING_FADE_M[1].toFixed(1)}, distance(vEyePosition.xyz, vPositionW)));
-  sroSlope += vec2(sroR.x, -sroR.y) * (${WATER_RING_GAIN.toFixed(2)} * sroRa);
+  ${L(V2, 'sroRu', `sroWP * ${WATER_RING_SCALE.toFixed(3)}`)}
+  ${L('float', 'sroRr', `clamp(${u('sroWaterA')}.z, 0.0, 1.0)`)}
+${ringTaps(lang, 'sroWRing', 'sroWaterRipple', 'sroRu', null, null, `${u('sroWaterA')}.w`, 'sroRr', 'sroR')}  ${L('float', 'sroRa', `smoothstep(0.0, 0.15, sroRr) * (1.0 - smoothstep(${WATER_RING_FADE_M[0].toFixed(1)}, ${WATER_RING_FADE_M[1].toFixed(1)}, distance(${eye}, ${pos})))`)}
+  sroSlope = sroSlope + ${V2}(sroR.x, -sroR.y) * (${WATER_RING_GAIN.toFixed(2)} * sroRa);
   sroWCrown = clamp(sroR.z * sroRa, 0.0, 1.0);
   sroWLine = clamp(max(sroR.w, 0.0) * sroRa * ${WATER_RING_LINE.toFixed(2)}, 0.0, 1.0);
   sroWGlint = (max(sroR.w, 0.0) + sroR.z) * sroRa;
 #endif
-  sroWN = normalize(vec3(sroSlope.x, 1.0, -sroSlope.y));
-  vec3 sroShallow = pow(clamp(sroWF * sroWaterB.rgb, 0.0, 1.0), vec3(2.2)) * ${WATER_ALBEDO_WEIGHT.toFixed(2)};
+  sroWN = normalize(${V3}(sroSlope.x, 1.0, -sroSlope.y));
+  ${L(V3, 'sroWV', `normalize(${eye} - ${pos})`)}
+#ifdef SRO_WATER_SKY
+  // AAA water: the sky cube along the reflected ray (ocean/sky-reflection.ts; the probe's faces are z-flipped).
+  ${L(V3, 'sroWR', 'reflect(-sroWV, sroWN)')}
+  ${L('float', 'sroWLod', `clamp(${u('sroWaterB')}.w * ${u('sroWaterB')}.w * 2.0 * ${u('sroWaterD')}.x, ${u('sroWaterD')}.y, ${u('sroWaterD')}.x)`)}
+  sroWSky = ${w ? `textureSampleLevel(sroWaterSky, sroWaterSkySampler, ${cubeLookupCode('wgsl', 'sroWR')}, sroWLod).rgb` : `textureLod(sroWaterSky, ${cubeLookupCode('glsl', 'sroWR')}, sroWLod).rgb`};
+#endif
+  sroWGl = ${V3}(0.0);
+#ifdef SRO_WATER_GLINT
+  // AAA water: the sun's glitter on facets tilted by the 17 m layer, fading out with the camera distance.
+  ${L(V3, 'sroGn', `normalize(sroWN + ${V3}(sroN1.x, 0.0, -sroN1.y) * ${n(WATER_GLINT_SLOPE)})`)}
+  ${L('float', 'sroGl', `pow(max(dot(reflect(-sroWV, sroGn), ${u('sroWaterS')}.xyz), 0.0), ${n(WATER_GLINT_SHARP)}) * (0.02 + 0.98 * pow(1.0 - clamp(dot(sroGn, sroWV), 0.0, 1.0), 5.0)) * ${n(WATER_GLINT_GAIN)} * (1.0 - smoothstep(${n(WATER_GLINT_FADE_M[0])}, ${n(WATER_GLINT_FADE_M[1])}, distance(${eye}, ${pos}))) * smoothstep(-0.02, 0.05, ${u('sroWaterS')}.y)`)}
+  sroWGl = ${u('sroWaterSC')}.rgb * (sroGl * ${u('sroWaterD')}.w);
+#endif
+  ${L(V3, 'sroShallow', `pow(${clamp3}) * ${WATER_ALBEDO_WEIGHT.toFixed(2)}`)}
 #ifdef SRO_WATER_SHORE
-  float sroDeep = clamp(sroWD / 4.0, 0.0, 1.0);
-  float sroFoam = ${FOAM} * clamp(0.6 + sroN0.x, 0.0, 1.0);
+  ${L('float', 'sroDeep', 'clamp(sroWD / 4.0, 0.0, 1.0)')}
+  ${L('float', 'sroFoam', `max(${FOAM} * clamp(0.6 + sroN0.x, 0.0, 1.0), sroWRap)`)}
   sroWAlpha = max(clamp(sroWD / ${WATER_SHORE_M.toFixed(2)}, 0.0, 1.0), sroFoam * 0.7);
-  sroWAlb = mix(mix(sroShallow, sroShallow * sroWaterC.rgb, sroDeep), vec3(0.55), sroFoam);
+  sroWAlb = mix(mix(sroShallow, sroShallow * ${u('sroWaterC')}.rgb, sroDeep), ${V3}(0.55), sroFoam);
 #else
-  float sroDeep = clamp(vColor.a, 0.0, 1.0);
-  sroWAlpha = clamp(vColor.a, 0.0, 1.0);
-  sroWAlb = mix(sroShallow, sroShallow * sroWaterC.rgb, sroDeep);
+  ${L('float', 'sroDeep', `clamp(${col}.a, 0.0, 1.0)`)}
+  sroWAlpha = max(clamp(${col}.a, 0.0, 1.0), sroWRap * 0.7);
+  sroWAlb = mix(mix(sroShallow, sroShallow * ${u('sroWaterC')}.rgb, sroDeep), ${V3}(0.55), sroWRap);
 #endif
 }
 #endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_ALBEDO: `#ifdef SRO_WATER
+`
+  const albedo = `#ifdef SRO_WATER
 surfaceAlbedo = sroWAlb;
 #ifdef SRO_WATER_RIPPLE
-surfaceAlbedo = mix(mix(surfaceAlbedo, vec3(${WATER_RING_LINE_ALBEDO.toFixed(2)}), sroWLine), vec3(${WATER_CROWN_ALBEDO.toFixed(2)}), sroWCrown * 0.8);
+surfaceAlbedo = mix(mix(surfaceAlbedo, ${V3}(${WATER_RING_LINE_ALBEDO.toFixed(2)}), sroWLine), ${V3}(${WATER_CROWN_ALBEDO.toFixed(2)}), sroWCrown * 0.8);
 #endif
 #endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_ALPHA: `#ifdef SRO_WATER
+`
+  const alpha = `#ifdef SRO_WATER
 alpha = sroWAlpha;
 #ifdef SRO_WATER_RIPPLE
 alpha = max(alpha, max(sroWCrown * 0.85, sroWLine * 1.5));
 #endif
 normalW = sroWN;
 #endif
-`,
-  CUSTOM_FRAGMENT_UPDATE_METALLICROUGHNESS: `#ifdef SRO_WATER
-metallicRoughness = vec2(0.0, sroWaterB.w);
+`
+  const rough = `#ifdef SRO_WATER
+metallicRoughness = ${V2}(0.0, ${u('sroWaterB')}.w);
 #endif
-`,
-  CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: `#ifdef SRO_WATER
-#ifdef SRO_WATER_RIPPLE
+`
+  // The blend (ocean-plugin.ts blendCode): α' = α + F (1 − α); reflected terms / α', scattered ones × α (1 − F) / α'.
+  // With the sky cube, the cube replaces Babylon's blurred environment radiance. The rings' glint stays as it was.
+  const F = (type: string, name: string, value: string) => L(type, name, value)
+  const blend = `#ifdef SRO_WATER
+{
+  ${F('float', 'sroBc', `clamp(dot(sroWN, normalize(${eye} - ${pos})), 0.0, 1.0)`)}
+  ${F('float', 'sroBf', 'clamp(0.02 + (max(1.0 - reflectivityOut.roughness, 0.02) - 0.02) * pow(1.0 - sroBc, 5.0), 0.0, 1.0)')}
+  ${F('float', 'sroBa', 'clamp(alpha, 0.0, 1.0)')}
+  ${F('float', 'sroB1', 'max(sroBa + sroBf * (1.0 - sroBa), 0.001)')}
+  ${F('float', 'sroKd', 'sroBa * (1.0 - sroBf) / sroB1')}
+  ${F('float', 'sroKr', '1.0 / sroB1')}
+  finalDiffuse = finalDiffuse * sroKd;
+  finalAmbient = finalAmbient * sroKd;
 #ifdef REFLECTION
-finalEmissive += reflectionOut.environmentRadiance.rgb * (vLightingIntensity.z * ${WATER_RING_GLINT.toFixed(2)} * sroWGlint);
+  finalIrradiance = finalIrradiance * sroKd;
+#ifdef SRO_WATER_SKY
+  finalRadianceScaled = finalRadianceScaled * 0.0;
+#else
+  finalRadianceScaled = finalRadianceScaled * sroKr;
+#endif
+#ifdef SRO_WATER_RIPPLE
+  finalEmissive = finalEmissive + reflectionOut.environmentRadiance.rgb * (${u('vLightingIntensity')}.z * ${WATER_RING_GLINT.toFixed(2)} * sroWGlint);
 #endif
 #endif
+#ifdef SPECULARTERM
+  finalSpecularScaled = finalSpecularScaled * sroKr;
 #endif
-`,
+#ifdef SRO_WATER_SKY
+  finalEmissive = finalEmissive + sroWSky * (sroBf * sroKr);
+#endif
+  finalEmissive = finalEmissive + sroWGl * sroKr;
+  alpha = sroB1;
+}
+#endif
+`
+  // SSR on the water (High/Ultra, sroWaterD.z = 1): the prepass reflectivity takes the Fresnel (ocean-plugin.ts).
+  const ssr = `#ifdef SRO_WATER
+#ifdef PREPASS_REFLECTIVITY
+specularEnvironmentR0 = max(specularEnvironmentR0, ${V3}(clamp(0.02 + 0.98 * pow(1.0 - clamp(dot(sroWN, normalize(${eye} - ${pos})), 0.0, 1.0), 5.0), 0.0, 1.0) * ${u('sroWaterD')}.z));
+#endif
+#endif
+`
+  return {
+    CUSTOM_FRAGMENT_DEFINITIONS: defs,
+    CUSTOM_FRAGMENT_MAIN_BEGIN: main,
+    CUSTOM_FRAGMENT_UPDATE_ALBEDO: albedo,
+    CUSTOM_FRAGMENT_UPDATE_ALPHA: alpha,
+    CUSTOM_FRAGMENT_UPDATE_METALLICROUGHNESS: rough,
+    CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: blend,
+    CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: ssr,
+  }
+}
+
+const WGSL: Record<string, string> = fragCode('wgsl')
+const GLSL: Record<string, string> = fragCode('glsl')
+
+/** The flow attribute's vertex code (SRO_WATER_FLOW): the attribute straight into its varying. */
+export function waterVertexCode(lang: 'wgsl' | 'glsl'): Record<string, string> {
+  return lang === 'wgsl'
+    ? {
+        CUSTOM_VERTEX_DEFINITIONS: `#ifdef SRO_WATER_FLOW\nattribute ${WATER_FLOW_ATTRIBUTE}: vec4f;\nvarying vSroFlow: vec4f;\n#endif\n`,
+        CUSTOM_VERTEX_MAIN_END: `#ifdef SRO_WATER_FLOW\nvertexOutputs.vSroFlow = vertexInputs.${WATER_FLOW_ATTRIBUTE};\n#endif\n`,
+      }
+    : {
+        CUSTOM_VERTEX_DEFINITIONS: `#ifdef SRO_WATER_FLOW\nattribute vec4 ${WATER_FLOW_ATTRIBUTE};\nvarying vec4 vSroFlow;\n#endif\n`,
+        CUSTOM_VERTEX_MAIN_END: `#ifdef SRO_WATER_FLOW\nvSroFlow = ${WATER_FLOW_ATTRIBUTE};\n#endif\n`,
+      }
 }
 
 /** The fragment injection points per language (the same keys in both; test/water-pbr.test.ts). */
@@ -338,24 +419,37 @@ export function waterFragmentCode(lang: 'wgsl' | 'glsl'): Readonly<Record<string
   return lang === 'wgsl' ? WGSL : GLSL
 }
 
-const UBO = ['sroWaterA', 'sroWaterB', 'sroWaterC'] as const
-export const WATER_PLUGIN_SAMPLERS = ['sroWaterFrames', 'sroWaterNormal', 'sroWaterRipple'] as const
+const UBO = ['sroWaterA', 'sroWaterB', 'sroWaterC', 'sroWaterD', 'sroWaterS', 'sroWaterSC'] as const
+export const WATER_PLUGIN_SAMPLERS = ['sroWaterFrames', 'sroWaterNormal', 'sroWaterRipple', 'sroWaterSky'] as const
+/** The flow vertex attribute (water.ts `riverFlow`): flow x, flow z (m/s), rapids 0..1, flow strength 0..1. */
+export const WATER_FLOW_ATTRIBUTE = 'sroFlow'
 
 // ---- state and plugin -----------------------------------------------------------------------------------------------
 
 /**
- * What the water material binds (water.ts writes it each frame):
+ * What the water material binds (water.ts writes it each frame; the ocean writes d, s, sc and the sky cube):
  *   a  frame index, animation time (s), rain 0..1 (ripple strength), ripple time (the weather clock, s)
  *   b  water colour rgb (display, noon level), roughness
  *   c  deep multiplier rgb, wave amplitude scale
+ *   d  AAA water: the sky cube's top level, its lowest level, SSR on the water (1/0), the glitter's strength
+ *   s  the key light's direction (to the light)
+ *   sc the key light's radiance (rgb, scene-linear)
  */
 export class WaterPbrState {
   readonly a = new Vector4(0, 0, 0, 0)
   readonly b = new Vector4(0.25, 0.69, 0.62, WATER_ROUGHNESS[0])
   readonly c = new Vector4(WATER_DEEP[0], WATER_DEEP[1], WATER_DEEP[2], 1)
+  readonly d = new Vector4(7, 0.5, 0, 1)
+  readonly s = new Vector4(0, 1, 0, 0)
+  readonly sc = new Vector4(0, 0, 0, 0)
   frames: BaseTexture | null = null
   normal: BaseTexture | null = null
   ripple: BaseTexture | null = null
+  /** AAA water: the sky reflection cube (ocean/sky-reflection.ts; null: Babylon's environment radiance). */
+  sky: BaseTexture | null = null
+  /** AAA water: the flow layer on meshes that carry the flow attribute, and the glitter (Medium+). */
+  flow = false
+  glint = false
   /** Depth shore (High+): the per-vertex depth alpha and the foam band. */
   shore = false
   readonly plugins = new Set<SroWaterPlugin>()
@@ -367,11 +461,29 @@ export class WaterPbrState {
     this.ripple = ripple
     if (changed) for (const p of this.plugins) p.markAllDefinesAsDirty()
   }
+
+  /** AAA water's switches (the sky cube appeared or went, the preset's flow and glitter). */
+  setLook(o: { sky?: BaseTexture | null; flow?: boolean; glint?: boolean }): void {
+    let changed = false
+    if (o.sky !== undefined) {
+      changed ||= (o.sky !== null) !== (this.sky !== null)
+      this.sky = o.sky
+    }
+    if (o.flow !== undefined && o.flow !== this.flow) {
+      this.flow = o.flow
+      changed = true
+    }
+    if (o.glint !== undefined && o.glint !== this.glint) {
+      this.glint = o.glint
+      changed = true
+    }
+    if (changed) for (const p of this.plugins) p.markAllDefinesAsDirty()
+  }
 }
 
 export class SroWaterPlugin extends MaterialPluginBase {
   constructor(material: Material, readonly state: WaterPbrState) {
-    super(material, SRO_WATER_PLUGIN, 240, { SRO_WATER: false, SRO_WATER_SHORE: false, SRO_WATER_RIPPLE: false }, true, true)
+    super(material, SRO_WATER_PLUGIN, 240, { SRO_WATER: false, SRO_WATER_SHORE: false, SRO_WATER_RIPPLE: false, SRO_WATER_SKY: false, SRO_WATER_FLOW: false, SRO_WATER_GLINT: false }, true, true)
     state.plugins.add(this)
   }
 
@@ -383,12 +495,20 @@ export class SroWaterPlugin extends MaterialPluginBase {
     return true
   }
 
-  override prepareDefines(defines: MaterialDefines): void {
+  override prepareDefines(defines: MaterialDefines, _scene?: Scene, mesh?: AbstractMesh): void {
     const s = this.state
     const on = s.frames !== null && s.normal !== null
     defines['SRO_WATER'] = on
     defines['SRO_WATER_SHORE'] = on && s.shore
     defines['SRO_WATER_RIPPLE'] = on && s.ripple !== null
+    defines['SRO_WATER_SKY'] = on && s.sky !== null
+    defines['SRO_WATER_FLOW'] = on && s.flow && !!mesh?.isVerticesDataPresent(WATER_FLOW_ATTRIBUTE)
+    defines['SRO_WATER_GLINT'] = on && s.glint
+  }
+
+  override getAttributes(attributes: string[], _scene: Scene, mesh: AbstractMesh): void {
+    const s = this.state
+    if (s.flow && s.frames && s.normal && mesh.isVerticesDataPresent(WATER_FLOW_ATTRIBUTE) && !attributes.includes(WATER_FLOW_ATTRIBUTE)) attributes.push(WATER_FLOW_ATTRIBUTE)
   }
 
   override getUniforms(language: ShaderLanguage = ShaderLanguage.GLSL) {
@@ -407,14 +527,20 @@ export class SroWaterPlugin extends MaterialPluginBase {
     ubo.updateVector4('sroWaterA', s.a)
     ubo.updateVector4('sroWaterB', s.b)
     ubo.updateVector4('sroWaterC', s.c)
+    ubo.updateVector4('sroWaterD', s.d)
+    ubo.updateVector4('sroWaterS', s.s)
+    ubo.updateVector4('sroWaterSC', s.sc)
     ubo.setTexture('sroWaterFrames', s.frames)
     ubo.setTexture('sroWaterNormal', s.normal)
     if (s.ripple) ubo.setTexture('sroWaterRipple', s.ripple)
+    if (s.sky) ubo.setTexture('sroWaterSky', s.sky)
   }
 
   override getCustomCode(shaderType: string, language: ShaderLanguage = ShaderLanguage.GLSL): Record<string, string> | null {
+    const lang = language === ShaderLanguage.WGSL ? 'wgsl' : 'glsl'
+    if (shaderType === 'vertex') return waterVertexCode(lang)
     if (shaderType !== 'fragment') return null
-    return { ...waterFragmentCode(language === ShaderLanguage.WGSL ? 'wgsl' : 'glsl') }
+    return { ...waterFragmentCode(lang) }
   }
 
   override dispose(forceDisposeTextures?: boolean): void {

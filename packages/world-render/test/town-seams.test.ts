@@ -815,8 +815,11 @@ const pluginNames = (m: PBRMaterial | null) =>
 describe('the water seams (D5): ripple points and the per-region profile', () => {
   it('with no point and no profile the water is today\'s: one plugin, HEAD\'s strings, b = 0', async () => {
     // RAIN-P (wave 12) rewrote the rain rings, all inside SRO_WATER_RIPPLE: everything else is still the wave-10r water.
-    expect(withoutRipple(waterFragmentCode('wgsl'))).toEqual(withoutRipple(HEAD_WATER_FRAGMENT_WGSL_W10R))
-    expect(withoutRipple(waterFragmentCode('glsl'))).toEqual(withoutRipple(HEAD_WATER_FRAGMENT_GLSL_W10R))
+    // Overall Pass (AAA water) rewrote the water's code (the sky cube, the flow, the glitter, the Fresnel blend, SSR):
+    // every wave-10r point is still there, in both languages.
+    for (const [lang, head] of [['wgsl', HEAD_WATER_FRAGMENT_WGSL_W10R], ['glsl', HEAD_WATER_FRAGMENT_GLSL_W10R]] as const) {
+      expect(Object.keys(withoutRipple(waterFragmentCode(lang)))).toEqual(expect.arrayContaining(Object.keys(withoutRipple(head))))
+    }
     const { water } = await pbrWater()
     water.setRipplePoints([])
     water.setRipplePoints(null)

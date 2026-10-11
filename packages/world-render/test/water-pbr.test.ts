@@ -111,6 +111,7 @@ describe('SroWaterPlugin code', () => {
     expect(Object.keys(wgsl).sort()).toEqual(Object.keys(glsl).sort())
     expect(Object.keys(wgsl).sort()).toEqual([
       'CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION',
+      'CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR',
       'CUSTOM_FRAGMENT_DEFINITIONS',
       'CUSTOM_FRAGMENT_MAIN_BEGIN',
       'CUSTOM_FRAGMENT_UPDATE_ALBEDO',

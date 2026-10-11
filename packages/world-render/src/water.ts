@@ -24,6 +24,8 @@ import { WATER_CHUNK_SAMPLERS, WATER_SAMPLERS, WATER_UNIFORMS, waterFragmentGLSL
 import { createTextureArray, solidTexture } from './textures.ts'
 import type { RegionData, WorldRegions } from './regions.ts'
 import {
+  FLOW_SPEED_MS,
+  WATER_FLOW_ATTRIBUTE,
   WATER_ROUGHNESS,
   WaterPbrState,
   createPbrIce,
@@ -291,6 +293,9 @@ export class WaterRenderer {
     const icePos: number[] = []
     const iceUv: number[] = []
     const iceIdx: number[] = []
+    // AAA water: the river's flow per grid vertex (PBR only; none in a profiled (town) region).
+    const flowGrid = pbr && !profile ? riverFlow(region.blocks, data.terrain.heights, region.origin, this.world.manifest.coast?.seaLevelM ?? null) : null
+    const flow: number[] = []
     for (const block of region.blocks) {
       const water = block.water
       if (!water) continue
@@ -322,12 +327,18 @@ export class WaterRenderer {
           // PBR: the depth and the wave type ride in the colour (pbr/water-plugin.ts); Classic: white.
           if (pbr) col.push(encodeWaterDepth(water.heightM - terrainH), waveAmplitude(water.wave) / 2, profile, a)
           else col.push(1, 1, 1, a)
+          if (pbr) {
+            const o = (gz * GRID + gx) * 4
+            if (flowGrid) flow.push(flowGrid[o]!, flowGrid[o + 1]!, flowGrid[o + 2]!, flowGrid[o + 3]!)
+            else flow.push(0, 0, 0, 0)
+          }
         }
       }
       if (!any) {
         pos.length = base * 3
         uv.length = base * 2
         col.length = base * 4
+        if (pbr) flow.length = base * 4
         this.skippedBlocks++
         continue
       }
@@ -352,6 +363,7 @@ export class WaterRenderer {
       const mesh = new Mesh(`water_${region.x}_${region.z}`, scene)
       mesh.layerMask |= WORLD_GROUND_LAYER
       vd.applyToMesh(mesh, false)
+      if (pbr) mesh.setVerticesData(WATER_FLOW_ATTRIBUTE, flow, false, 4)
       mesh.position.set(region.origin[0], region.origin[1], region.origin[2])
       mesh.sideOrientation = Material.CounterClockWiseSideOrientation
       mesh.hasVertexAlpha = true
@@ -463,6 +475,15 @@ export class WaterRenderer {
     return s
   }
 
+  /**
+   * AAA water (the ocean part calls it when its sky cube appears or goes, ocean/sky-reflection.ts): the cube the PBR
+   * water mirrors and its top mip level (null: Babylon's environment radiance, as before).
+   */
+  setSkyReflection(cube: BaseTexture | null, levels: number): void {
+    this.pbrState.d.x = levels
+    this.pbrState.setLook({ sky: cube })
+  }
+
   /** W10-S (COAST F5): the Classic water's animation frames (Low's ocean joins them): the array, its count, ms each. */
   get classicFrames(): { texture: BaseTexture | null; count: number; frameMs: number } {
     return { texture: this.frames, count: this.frameCount, frameMs: this.frameMs }
@@ -474,6 +495,8 @@ export class WaterRenderer {
     const src = this.source
     const rain = Math.min(1, Math.max(0, src?.render.weather.rain ?? 0))
     s.setSwitches(!!src?.render.quality.waterDepthShore, src?.weather?.rippleTexture ?? null)
+    // AAA water: the river flow and the glitter on the PBR presets (the glitter follows the ocean row's switch).
+    s.setLook({ flow: true, glint: !!src?.render.quality.ocean?.glint })
     s.a.set(frame, animS % 3600, rain, src?.weather?.u.wxA.w ?? animS % 3600)
     const c = waterHue(p.color)
     s.b.set(c[0], c[1], c[2], WATER_ROUGHNESS[0] + (WATER_ROUGHNESS[1] - WATER_ROUGHNESS[0]) * rain)
@@ -509,6 +532,148 @@ export class WaterRenderer {
     this.black?.dispose()
     this.black = null
   }
+}
+
+/** Rivers: the half-width (m) below which water flows at full speed, and above which (lakes, the sea) it is still. */
+export const RIVER_HALF_WIDTH_M: readonly [number, number] = [8, 20]
+/** Water within this of the sea level is the sea's own bays (it joins the ocean): still. */
+const SEA_JOIN_M = 0.4
+/** The flow runs from the island's middle (Jangan) out to the sea. */
+const ISLAND_CENTRE: readonly [number, number] = [100, -100]
+
+/**
+ * AAA water, flowing rivers (pbr/water-plugin.ts SRO_WATER_FLOW): per region grid vertex (GRID², glTF axes) the
+ * attribute (flow x, flow z in m/s, rapids 0..1, strength 0..1). The retail water planes are flat and carry no
+ * direction, so the channel gives it: a chamfer distance (m) from the dry ground over the region's water, its gradient
+ * across the channel turned a quarter (along the banks), signed to point away from the island's middle (rivers run
+ * out to the sea), blurred; the strength is 1 where the channel's half-width (the largest bank distance within 16 m)
+ * is under RIVER_HALF_WIDTH_M[0] and 0 over [1] (lakes, ponds and the sea's bays stay still), the rapids where the
+ * flowing water runs shallow. Null when no vertex flows.
+ */
+export function riverFlow(blocks: readonly TerrainBlock[], heights: Float32Array | ArrayLike<number>, origin: readonly number[], seaLevelM: number | null): Float32Array | null {
+  const N = GRID
+  const level = new Float32Array(N * N).fill(NaN)
+  let any = false
+  for (const b of blocks) {
+    const w = b.water
+    if (!w || w.kind !== 'water') continue
+    const h = (origin[1] ?? 0) + w.heightM
+    if (seaLevelM !== null && Math.abs(h - seaLevelM) < SEA_JOIN_M) continue
+    for (let j = 0; j <= 16; j++) for (let i = 0; i <= 16; i++) level[(b.bz * 16 + j) * N + b.bx * 16 + i] = w.heightM
+    any = true
+  }
+  if (!any) return null
+  // the chamfer distance (m) from dry cells (2 m grid: 2 straight, 2.83 diagonal); the region's edge is not a bank
+  const BIG = 1e6
+  const d = new Float32Array(N * N)
+  for (let k = 0; k < N * N; k++) {
+    const lv = level[k]!
+    d[k] = Number.isNaN(lv) || lv - (heights[k] ?? 0) <= 0.05 ? 0 : BIG
+  }
+  const S = 2, D = 2.83
+  for (let z = 0; z < N; z++) {
+    for (let x = 0; x < N; x++) {
+      const k = z * N + x
+      let v = d[k]!
+      if (v === 0) continue
+      if (x > 0) v = Math.min(v, d[k - 1]! + S)
+      if (z > 0) {
+        v = Math.min(v, d[k - N]! + S)
+        if (x > 0) v = Math.min(v, d[k - N - 1]! + D)
+        if (x < N - 1) v = Math.min(v, d[k - N + 1]! + D)
+      }
+      d[k] = v
+    }
+  }
+  for (let z = N - 1; z >= 0; z--) {
+    for (let x = N - 1; x >= 0; x--) {
+      const k = z * N + x
+      let v = d[k]!
+      if (v === 0) continue
+      if (x < N - 1) v = Math.min(v, d[k + 1]! + S)
+      if (z < N - 1) {
+        v = Math.min(v, d[k + N]! + S)
+        if (x < N - 1) v = Math.min(v, d[k + N + 1]! + D)
+        if (x > 0) v = Math.min(v, d[k + N - 1]! + D)
+      }
+      d[k] = v
+    }
+  }
+  for (let k = 0; k < N * N; k++) if (d[k]! >= BIG) d[k] = 64 // a region of water with no bank at all: wide
+  // the channel's half-width: the largest bank distance within 8 cells (separable max)
+  const R = 8
+  const tmp = new Float32Array(N * N)
+  const wide = new Float32Array(N * N)
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    let m = 0
+    for (let i = Math.max(0, x - R); i <= Math.min(N - 1, x + R); i++) m = Math.max(m, d[z * N + i]!)
+    tmp[z * N + x] = m
+  }
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    let m = 0
+    for (let j = Math.max(0, z - R); j <= Math.min(N - 1, z + R); j++) m = Math.max(m, tmp[j * N + x]!)
+    wide[z * N + x] = m
+  }
+  // along the banks, away from the island's middle (glTF: grid x → +x, grid z → −z)
+  const tx = new Float32Array(N * N), tz = new Float32Array(N * N)
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    const k = z * N + x
+    if (d[k] === 0) continue
+    const gx = d[z * N + Math.min(N - 1, x + 1)]! - d[z * N + Math.max(0, x - 1)]!
+    const gzGrid = d[Math.min(N - 1, z + 1) * N + x]! - d[Math.max(0, z - 1) * N + x]!
+    // the world gradient (gx, −gzGrid) turned a quarter: (gzGrid, gx)
+    let ax = gzGrid, az = gx
+    const l = Math.hypot(ax, az)
+    if (l < 1e-4) continue
+    ax /= l
+    az /= l
+    const wx = (origin[0] ?? 0) + 2 * x - ISLAND_CENTRE[0], wz = (origin[2] ?? 0) - 2 * z - ISLAND_CENTRE[1]
+    if (ax * wx + az * wz < 0) {
+      ax = -ax
+      az = -az
+    }
+    tx[k] = ax
+    tz[k] = az
+  }
+  // blur the direction (radius 3 cells) so the channel's middle, where the gradient vanishes, takes its banks' way
+  const B = 3
+  const bx = new Float32Array(N * N), bz = new Float32Array(N * N)
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    let sx = 0, sz = 0
+    for (let i = Math.max(0, x - B); i <= Math.min(N - 1, x + B); i++) {
+      sx += tx[z * N + i]!
+      sz += tz[z * N + i]!
+    }
+    bx[z * N + x] = sx
+    bz[z * N + x] = sz
+  }
+  const out = new Float32Array(N * N * 4)
+  let flows = false
+  const smooth = (a: number, b: number, v: number) => {
+    const t = Math.min(1, Math.max(0, (v - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+  }
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    const k = z * N + x
+    if (Number.isNaN(level[k]!)) continue
+    let sx = 0, sz = 0
+    for (let j = Math.max(0, z - B); j <= Math.min(N - 1, z + B); j++) {
+      sx += bx[j * N + x]!
+      sz += bz[j * N + x]!
+    }
+    const l = Math.hypot(sx, sz)
+    if (l < 1e-3) continue
+    const strength = 1 - smooth(RIVER_HALF_WIDTH_M[0], RIVER_HALF_WIDTH_M[1], wide[k]!)
+    if (strength <= 0) continue
+    const depth = level[k]! - (heights[k] ?? 0)
+    const speed = FLOW_SPEED_MS * strength
+    out[k * 4] = (sx / l) * speed
+    out[k * 4 + 1] = (sz / l) * speed
+    out[k * 4 + 2] = strength * (1 - smooth(0.25, 1.1, depth)) * 0.9
+    out[k * 4 + 3] = strength
+    flows = true
+  }
+  return flows ? out : null
 }
 
 /** Up normals for n vertices (the flat PBR water). */
