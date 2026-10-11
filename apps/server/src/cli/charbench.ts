@@ -29,7 +29,7 @@
  *   --debug-port <n>                 Chrome's first CDP port (default 9611; another bench running on this machine)
  *   --headed                         a visible Chrome window (the GPU path a player gets) instead of headless
  */
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { cpus, freemem, tmpdir } from 'node:os'
 import { appendFileSync } from 'node:fs'
@@ -104,6 +104,13 @@ function cpuSampler(): () => void {
     // a shared PC running out of memory crashed twice during benches: below MIN_FREE_MB the bench's Chromes go and it stops
     if (cpuLog.at(-1)!.freeMB < MIN_FREE_MB) {
       console.error(`[charbench] only ${cpuLog.at(-1)!.freeMB} MB free: closing the bench's Chrome and stopping`)
+      try {
+        // who holds the memory (the bench's Chrome, the GPU process, another helper's run)
+        const ps = "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 12 Id,ProcessName,@{n='MB';e={[math]::Round($_.WorkingSet64/1MB)}},Path | Format-Table -AutoSize | Out-String -Width 160"
+        const top = execSync(`powershell -NoProfile -Command "${ps}"`, { encoding: 'utf8', timeout: 20000 })
+        console.error(top)
+        writeFileSync(join(OUT, 'low-memory.txt'), top)
+      } catch {}
       for (const c of chromes) try { c.kill() } catch {}
       process.exit(3)
     }
