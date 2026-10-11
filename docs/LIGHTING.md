@@ -124,3 +124,22 @@ its own look (the PCF filter on ANGLE is the first suspect). Before/after sheet:
 - Contact shadows (screen-space) were not added (no budget left on CPU, the game's bottleneck).
 - PCSS: a float32 shadow map (see §4) is the missing piece.
 - The night's teal-green cast comes from the scene (sky/ambient), not the grade; a night-sky look pass would own it.
+
+## 7. Overall Pass item 16 (2026-10-11): fog, mist, storms, sky fixes
+
+- **Fog knows the ground** (pbr/fog-plugin.ts `packFogW`: `sroFogA.w` packs on/off, the ground under the camera and the
+  mist level; every reader treats `w > 0.5` as on). Above `CAMERA_HEIGHT_M` the rays down to the ground get the
+  ground's density and start further out (`ALT_START_K`): no heavy fog from flying height; the shafts' haze thins too.
+- **Ground mist** (render/atmosphere.ts `mistLevel`, `LIGHT_LOOK.groundMist`): an exponential layer anchored at the
+  ground (`MIST_H_M` 7 m) that pools in valleys at dawn, dusk and after rain, integrated exactly in the fog function.
+- **Aerial haze as a long ramp**: the density spans the (nearer) atmosphere start to the retail end, and a surface is
+  fogged at most `FOG_CAP` 0.82 until the fog end: far walls and hills keep their shape (the "teal box" city wall).
+  The fog colour (and the High+ horizon ring) greys in rain/overcast and a third by day (`HeightFog.desaturate`).
+- **Golden hour** less hazy/yellow (`ATMOSPHERE` evening 1.7 → 1.15, start 0.4 → 0.65; dusk grade crisper);
+  **storm** grade cool and moody (`GRADE_WEATHER.rain`).
+- **Sun breaking through rain** (render/atmosphere.ts `sunBreak`): a low sun in rain opens the clouds in its bearing
+  (dome: deck, volume, rain shafts, disc and core halo), keeps most of the key light and lets the shafts through.
+- **Clouds**: the volume march's jitter rotates per frame (8-frame IGN), so TAA removes the dotted grain at edges.
+- **SSR on High** while puddles (`ssr: 'puddles'`); **High PCF** filtered like Ultra.
+- Not done: Options bloom stays Off by default (Subtle looks right on lanterns but its low-res blur makes blocky
+  blobs on the bright pillar lamps); PCSS still waits for a float32 shadow map; no GTAO (SSAO2 as before).
