@@ -2,7 +2,7 @@
  * GAME (docs/WAVE_PLAN3.md §6.15) and the user's preview rollout (rollout.ts): the effective graphics in both rollout
  * modes (an old save on Medium renders Classic in 'preview' until the player opts in, and moves to the PBR path in
  * 'on'), the weather and clock gates, the Options rows (the preview toggle, Ultra, Advanced, the rebuild question), the
- * graphics link on a fake world (world/graphics.ts: path switches, character lights, the watchdog's preset drop),
+ * graphics link on a fake world (world/graphics.ts: path switches, character lights, the watchdog's preset hint),
  * the weather feature's clear frame without the new look, and the hit flashes joining the night cluster.
  */
 import { DirectionalLight, HemisphericLight, Mesh, NullEngine, PBRMaterial, PointLight, Scene, TransformNode, Vector3, type Light } from '@babylonjs/core'
@@ -552,7 +552,7 @@ describe('WorldGraphics (world/graphics.ts)', () => {
     expect(world.characters.size).toBe(0)
   })
 
-  it('the watchdog: one preset down when frames are slow with the new look, never without it', () => {
+  it('the watchdog: slow frames with the new look only SUGGEST a lower preset (once), never change it; nothing without it', () => {
     let now = 0
     const said: string[] = []
     const store = new SettingsStore(null)
@@ -563,11 +563,17 @@ describe('WorldGraphics (world/graphics.ts)', () => {
     expect(store.get().graphics.preset).toBe('high')
     store.set({ graphics: { modern: true } })
     for (const start = now; now < start + 40_000; now += 50) g.frame(50, true)
-    expect(store.get().graphics.preset).toBe('medium')
-    expect(said.at(-1)).toMatch(/went down to Medium/)
+    // 2026-10-11: never a change (it rebuilt the renderer behind a loading overlay mid-fight); one chat hint instead.
+    expect(store.get().graphics.preset).toBe('high')
+    const hints = () => said.filter(l => /running slowly/.test(l))
+    expect(hints()).toHaveLength(1)
+    expect(hints()[0]).toMatch(/Medium.*not changed/)
+    for (const start = now; now < start + 120_000; now += 50) g.frame(50, true)
+    expect(store.get().graphics.preset).toBe('high')
+    expect(hints()).toHaveLength(1)
   })
 
-  it('the watchdog (V-12): a display capped at 30 Hz never drops High; a really slow game on it still does', () => {
+  it('the watchdog (V-12): a display capped at 30 Hz never trips on High; a really slow game on it still hints', () => {
     let now = 0
     const said: string[] = []
     const store = new SettingsStore(null)
@@ -591,10 +597,11 @@ describe('WorldGraphics (world/graphics.ts)', () => {
     expect(g.watchdog.hold).toBe('pace')
     // 20 fps on that screen is slowness
     for (const start = now; now < start + 40_000; now += 50) g.frame(50, true)
-    expect(store.get().graphics.preset).toBe('medium')
+    expect(store.get().graphics.preset).toBe('high')
+    expect(said).toHaveLength(1)
   })
 
-  it('the watchdog (W9A perf): never drops to Low (Classic) on its own, and waits while the world streams or compiles', () => {
+  it('the watchdog (W9A perf): never suggests Low (Classic), and waits while the world streams or compiles', () => {
     let now = 0
     const said: string[] = []
     const store = new SettingsStore(null)
@@ -617,9 +624,9 @@ describe('WorldGraphics (world/graphics.ts)', () => {
     expect(store.get().graphics.preset).toBe('high')
     // Settled: 3 s, then a (nearly) full 10 s window of slow frames.
     for (const start = now; now < start + 11_000; now += 50) g.frame(50, true)
-    expect(store.get().graphics.preset).toBe('high')
+    expect(said).toEqual([])
     for (const start = now; now < start + 4_000; now += 50) g.frame(50, true)
-    expect(store.get().graphics.preset).toBe('medium')
+    expect(store.get().graphics.preset).toBe('high')
     expect(said).toHaveLength(1)
   })
 })

@@ -18,8 +18,10 @@
  * - G1 rescue: the crowd budget (world/crowd-budget.ts) over the same attachments: with many characters near, the other
  *   characters cast fewer shadows (blobs under the rest on Medium) and update their poses less often far away; the own
  *   character, the party and the target never change. Runs every frame from `frame()`; nothing on the Classic path.
- * - The frame-time watchdog (RENDER §10): with the new look on, p95 > 33 ms over 10 s drops one preset (once per preset
- *   and visit, never below WATCHDOG_FLOOR: Medium) and says so in chat. It does not judge while the world streams or
+ * - The frame-time watchdog (RENDER §10): with the new look on, p95 > 33 ms over 10 s only SUGGESTS a lower preset in
+ *   chat (once per visit, never below WATCHDOG_FLOOR: Medium). It never changes the player's settings itself: the old
+ *   automatic drop rebuilt the renderer behind a loading overlay mid-fight (2026-10-11 report: "refreshes to a lower
+ *   setting"), which cost fights and deaths. It does not judge while the world streams or
  *   compiles shaders, nor for WATCHDOG.settleMs after (W9A perf pass: a switch settles in 5–26 s on the dev PC).
  *   V-12: nor when the display or the browser caps the frame rate (a 30 Hz screen: steady 31–35 ms frames): frames
  *   at the display's own pace (./frame-pace.ts), or with little CPU and GPU work in them, are vsync, not slowness.
@@ -234,8 +236,8 @@ export class WorldGraphics {
   private skyLit = false
   private readonly charMats = new Set<Material>()
   private readonly raised = new Map<Material, number>()
-  /** Presets the watchdog already dropped from on this visit (the player's choice back up is kept). */
-  private readonly dropped = new Set<GraphicsPreset>()
+  /** The watchdog already suggested a lower preset on this visit. */
+  private hinted = false
   private instrumentation: EngineInstrumentation | null = null
   /** A shader compiled since the last frame (the watchdog waits: a compile is a rebuild, not the frame rate). */
   private compiled = false
@@ -564,15 +566,16 @@ export class WorldGraphics {
     this.skyLit = false
   }
 
-  /** The watchdog tripped: one preset down (never below WATCHDOG_FLOOR), once per preset and visit, and a chat line. */
+  /**
+   * The watchdog tripped: a chat line suggesting the next preset down (never below WATCHDOG_FLOOR), once per visit.
+   * The settings are NOT changed: a preset change rebuilds the renderer behind a loading overlay, never unasked.
+   */
   private slow(): void {
     const s = this.store.get()
-    const from = s.graphics.preset
-    const to = lowerPreset(from, WATCHDOG_FLOOR)
-    if (!to || this.dropped.has(from)) return
-    this.dropped.add(from)
-    this.store.set({ graphics: { preset: to } })
-    this.o.say?.(t('render.watchdog', { preset: presetLabel(to, this.store.get(), this.rollout) }))
+    const to = lowerPreset(s.graphics.preset, WATCHDOG_FLOOR)
+    if (!to || this.hinted) return
+    this.hinted = true
+    this.o.say?.(t('render.watchdog', { preset: presetLabel(to, s, this.rollout) }))
   }
 
   /** The GPU frame time can be measured here (an engine, and timestamp-query). */

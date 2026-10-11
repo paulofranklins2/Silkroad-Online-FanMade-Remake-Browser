@@ -78,7 +78,7 @@ export const enRender = {
   'options.advanced.lightShafts.low': 'Low',
   'options.advanced.lightShafts.high': 'High',
   // The world screen: the frame-time watchdog (RENDER §10) and a path switch a whole-world load cannot rebuild
-  'render.watchdog': 'The game was running slowly, so the graphics quality went down to {preset}. Options → Graphics changes it back.',
+  'render.watchdog': 'The game is running slowly. Options → Graphics → {preset} may run smoother (your settings were not changed).',
   'render.reenter': 'The new graphics apply the next time you enter the world.',
   // PERF2: the loading picture while the world's shaders are prepared (world entry, a graphics switch; screens/warmup.ts)
   'render.warmup': 'Preparing the graphics...',

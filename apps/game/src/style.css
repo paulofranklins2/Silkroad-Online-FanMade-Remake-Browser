@@ -469,6 +469,12 @@ body:has(.screen.world) .corner {
   margin: 10px auto 0;
 }
 
+/* A lost device (gpu-loss.ts): at the top, clear of the HUD and the target frame; the page never reloads by itself. */
+.gpu-notice.gpu-lost {
+  top: 64px;
+  transform: translateX(-50%);
+}
+
 /* The "3D view is black" help (gpu-help.ts): the fixes, left-aligned, buttons in a row. */
 .gpu-help {
   text-align: left;

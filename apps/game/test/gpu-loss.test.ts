@@ -1,7 +1,7 @@
 /**
  * The 2026-10-05 black screen: a lost graphics device (WebGPU device.lost) must never leave the game silently black.
- * gpu-loss.ts reloads straight back into the world (net/resume.ts), keeps Babylon's broken in-place WebGPU restore off
- * and stops reloading after a loop. WebGPU only (Overall Pass item 0): no WebGL2 fallback.
+ * gpu-loss.ts keeps Babylon's broken in-place WebGPU restore off and shows a notice whose Reload goes straight back into the
+ * world (net/resume.ts); it never reloads by itself (2026-10-11 report). WebGPU only (Overall Pass item 0): no WebGL2 fallback.
  */
 import { Observable, type AbstractEngine } from '@babylonjs/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,6 @@ import {
   LOSSES_KEY,
   RECOVER_KEY,
   RECOVER_TTL_MS,
-  RELOAD_DELAY_MS,
   REPEAT_WINDOW_MS,
   planRecovery,
   takeGpuRecovery,
@@ -84,7 +83,7 @@ describe('planRecovery', () => {
 })
 
 describe('GpuLossGuard on WebGPU', () => {
-  it('a lost device: Babylon\'s restore stays off, the notice shows, the world character is kept and the page reloads once', async () => {
+  it('a lost device: Babylon\x27s restore stays off, a notice with a Reload button shows, and the page NEVER reloads by itself', async () => {
     const store = storage()
     const { engine, lose, restore } = fakeWebGPU()
     const d = deps(engine, 'WebGPU', store)
@@ -97,39 +96,48 @@ describe('GpuLossGuard on WebGPU', () => {
 
     lose({ reason: 'unknown', message: 'GPU process crashed' })
     await vi.advanceTimersByTimeAsync(0)
-    expect(guard.state).toBe('reloading')
-    expect(d.notice).toHaveBeenCalledWith('reloading')
+    expect(guard.state).toBe('lost')
     expect(guard.history[0]).toMatchObject({ kind: 'WebGPU', reason: 'unknown', message: 'GPU process crashed', plan: 'reload' })
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('unknown: GPU process crashed'))
-    expect(JSON.parse(store.map.get(RECOVER_KEY)!)).toMatchObject({ characterId: 7, reason: 'unknown: GPU process crashed' })
     expect(JSON.parse(store.map.get(LOSSES_KEY)!)).toHaveLength(1)
+    const [text, reload] = d.notice.mock.calls[0]!
+    expect(text).toBe('reloading')
+    expect(reload).toBeTypeOf('function')
 
-    // A second event for the same loss (the observable, a console call) does not start another recovery.
+    // A second event for the same loss does not start another recovery; minutes pass: still no reload.
     guard.lost({ kind: 'WebGPU', reason: 'unknown', message: 'again' })
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
     expect(d.reload).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(RELOAD_DELAY_MS)
-    expect(d.reload).toHaveBeenCalledTimes(1)
     expect(d.notice).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(store.map.get(LOSSES_KEY)!)).toHaveLength(1)
+    expect(store.map.has(RECOVER_KEY)).toBe(false)
+
+    // The player clicks Reload (late): the character is kept from that moment (fresh for takeGpuRecovery), then reload.
+    reload!()
+    expect(d.reload).toHaveBeenCalledTimes(1)
+    expect(guard.state).toBe('reloading')
+    const rec = JSON.parse(store.map.get(RECOVER_KEY)!)
+    expect(rec).toMatchObject({ characterId: 7, reason: 'unknown: GPU process crashed' })
+    expect(takeGpuRecovery(Date.now(), store)).not.toBeNull()
+    reload!()
+    expect(d.reload).toHaveBeenCalledTimes(1)
     guard.dispose()
   })
 
-  it('each loss reloads on WebGPU; a loop stops with a Reload button instead', async () => {
+  it('a loop of losses shows the "keeps failing" advice, still only reloading on a click', async () => {
     const store = storage()
     const run = async () => {
       const { engine, lose } = fakeWebGPU()
       const d = deps(engine, 'WebGPU', store)
       const guard = new GpuLossGuard(d)
       lose({ reason: 'unknown', message: '' })
-      await vi.advanceTimersByTimeAsync(RELOAD_DELAY_MS)
+      await vi.advanceTimersByTimeAsync(60_000)
       guard.dispose()
       return { d, guard }
     }
     const first = await run()
     expect(first.guard.history[0]!.plan).toBe('reload')
-    expect(first.d.notice).toHaveBeenCalledWith('reloading')
-    expect(first.d.reload).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(60_000)
+    expect(first.d.notice.mock.calls[0]![0]).toBe('reloading')
+    expect(first.d.reload).not.toHaveBeenCalled()
     for (let i = 1; i < LOOP_LIMIT - 1; i++) await run()
     const last = await run()
     expect(last.guard.state).toBe('stopped')
@@ -146,7 +154,9 @@ describe('GpuLossGuard on WebGPU', () => {
     const d = deps(engine, 'WebGPU', store, null)
     new GpuLossGuard(d)
     lose({ reason: 'unknown', message: '' })
-    await vi.advanceTimersByTimeAsync(RELOAD_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(d.reload).not.toHaveBeenCalled()
+    d.notice.mock.calls[0]![1]!()
     expect(store.map.has(RECOVER_KEY)).toBe(false)
     expect(d.reload).toHaveBeenCalledTimes(1)
 
@@ -155,7 +165,7 @@ describe('GpuLossGuard on WebGPU', () => {
     new GpuLossGuard(d2)
     other.engine.isDisposed = true
     other.lose({ reason: 'destroyed', message: '' })
-    await vi.advanceTimersByTimeAsync(RELOAD_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(d2.notice).not.toHaveBeenCalled()
     expect(d2.reload).not.toHaveBeenCalled()
   })
@@ -224,7 +234,7 @@ describe('black output (gpu-watchdog.ts → GpuLossGuard.blackOutput)', () => {
     const d = deps(engine, 'WebGPU', store)
     const guard = new GpuLossGuard(d)
     expect(guard.blackOutput('3 empty samples')).toBe('help')
-    await vi.advanceTimersByTimeAsync(RELOAD_DELAY_MS * 2)
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(d.help).toHaveBeenCalledTimes(1)
     expect(d.reload).not.toHaveBeenCalled()
     expect(store.map.has(RECOVER_KEY)).toBe(false)

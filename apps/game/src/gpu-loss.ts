@@ -7,11 +7,14 @@
  * the new device exists (AbstractEngine._restoreEngineAfterContextLost does not await WebGPU's async initAsync), logs
  * "context successfully restored", and every later frame draws with objects of the dead device. Waiting for the new
  * device first is not enough either (measured: geometry buffers of the old device stay referenced, and the world's raw
- * texture arrays and compute resources have no CPU copy). So on WebGPU the engine stays paused after a loss and the
- * page reloads straight back into the same character (net/resume.ts, screens/charselect.ts: takeGpuRecovery).
+ * texture arrays and compute resources have no CPU copy), so an in-place recovery is not feasible. On WebGPU the engine
+ * stays paused after a loss and a non-blocking notice offers a Reload button; the page NEVER reloads on its own
+ * (2026-10-11 report: an automatic reload mid-fight cost fights and deaths). The network session, the HUD and the
+ * character on the server stay as they are; the player's Reload goes straight back into the same character
+ * (net/resume.ts, screens/charselect.ts: takeGpuRecovery).
  *
- * The game runs WebGPU only (Overall Pass item 0): there is no WebGL2 to fall back to, so every loss reloads on WebGPU.
- * LOOP_LIMIT losses within LOOP_WINDOW_MS stop the automatic reloads and leave a notice with a Reload button.
+ * The game runs WebGPU only (Overall Pass item 0): there is no WebGL2 to fall back to. LOOP_LIMIT losses within
+ * LOOP_WINDOW_MS change the notice to the "keeps failing" advice (still with its Reload button).
  *
  * Black output (gpu-watchdog.ts): a 3D view that renders nothing without any loss event shows the "3D view is black"
  * help (gpu-help.ts: another browser, or ending Chrome's GPU process). The same help is in the Esc menu and on the login
@@ -40,11 +43,9 @@ export const RECOVER_KEY = 'sro.gpu.recover'
 
 /** Losses older than this are forgotten. */
 export const REPEAT_WINDOW_MS = 30 * 60_000
-/** This many losses within LOOP_WINDOW_MS stop the automatic reloads. */
+/** This many losses within LOOP_WINDOW_MS show the "keeps failing" advice. */
 export const LOOP_LIMIT = 4
 export const LOOP_WINDOW_MS = 10 * 60_000
-/** The notice shows this long before the reload. */
-export const RELOAD_DELAY_MS = 1500
 /** A recovery record older than this is ignored (a later manual reload, a restored tab). */
 export const RECOVER_TTL_MS = 120_000
 
@@ -68,7 +69,7 @@ export interface GpuRecovery {
   reason: string
 }
 
-/** What to do about a loss, given this tab's earlier losses (`losses` includes the new one): reload, or stop a loop. */
+/** What to offer after a loss, given this tab's earlier losses (`losses` includes the new one): reload, or the loop advice. */
 export function planRecovery(losses: readonly number[], now: number): RecoveryPlan {
   return losses.filter(t => now - t <= LOOP_WINDOW_MS).length >= LOOP_LIMIT ? 'stop' : 'reload'
 }
@@ -123,7 +124,7 @@ export interface GpuLossDeps {
   storage: LossStorage | null
   /** The character in the world now (the reload goes straight back to it); null on the other screens. */
   character(): number | null
-  /** Shows (or replaces) the on-screen notice; `reload` adds a button that reloads now. */
+  /** Shows (or replaces) the on-screen notice (never blocks the HUD); `reload` adds a button that reloads now. */
   notice(text: string, reload?: () => void): void
   hideNotice(): void
   /** Shows the "3D view is black" help (gpu-help.ts): black output that switching cannot fix. */
@@ -135,15 +136,15 @@ export interface GpuLossDeps {
   now?: () => number
 }
 
-type Phase = 'ok' | 'reloading' | 'stopped'
+/** lost: the notice with its Reload button is up; stopped: the same, with the loop advice; reloading: the player pressed it. */
+type Phase = 'ok' | 'lost' | 'reloading' | 'stopped'
 
 /**
- * Watches the engine for a lost device and recovers (see the header). One loss leads to one recovery: repeated lost
- * events are ignored meanwhile.
+ * Watches the engine for a lost device and offers a reload (see the header). One loss leads to one notice: repeated
+ * lost events are ignored meanwhile. Nothing reloads without the player's click.
  */
 export class GpuLossGuard {
   private phase: Phase = 'ok'
-  private timer: ReturnType<typeof setTimeout> | null = null
   private readonly now: () => number
   /** Every loss handled, newest last (debugging: `window.__sroGpuLoss`). */
   readonly history: (GpuLoss & { at: number; plan: RecoveryPlan | 'help' })[] = []
@@ -197,25 +198,13 @@ export class GpuLossGuard {
     this.history.push({ ...loss, at, plan })
     const detail = loss.message ? `${loss.reason}: ${loss.message}` : loss.reason
     console.error(`[gpu] ${loss.kind} device lost (${detail}); loss ${losses.length} in this tab's last ${REPEAT_WINDOW_MS / 60_000} min; ${plan}`)
-    const reloadNow = () => this.deps.reload()
-    if (plan === 'stop') {
-      this.phase = 'stopped'
-      this.deps.notice(this.deps.text.stopped, reloadNow)
-      return
-    }
-    this.phase = 'reloading'
-    this.keepCharacter(detail, at)
-    this.deps.notice(this.deps.text.reloading)
-    this.timer = setTimeout(() => {
-      this.timer = null
-      this.deps.reload()
-    }, RELOAD_DELAY_MS)
+    // The character is kept when the player clicks (the record's TTL counts from then), not now.
+    const reloadNow = () => this.reloadIntoWorld(detail)
+    this.phase = plan === 'stop' ? 'stopped' : 'lost'
+    this.deps.notice(plan === 'stop' ? this.deps.text.stopped : this.deps.text.reloading, reloadNow)
   }
 
-  dispose(): void {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
-  }
+  dispose(): void {}
 }
 
 /** The part of a GPUDevice the guard reads. */
@@ -265,7 +254,7 @@ export function installGpuLossGuard(app: App, kind: EngineKind): GpuLossGuard {
     storage: tabStorage(),
     character: () => (app.current === 'world' ? ((app.currentParams as ScreenParams['world'] | undefined)?.character.id ?? null) : null),
     notice: (text, reload) => {
-      box ??= document.body.appendChild(el('div', 'gpu-notice'))
+      box ??= document.body.appendChild(el('div', 'gpu-notice gpu-lost'))
       box.replaceChildren(el('div', '', text))
       if (reload) {
         box.append(button(app.art, { label: t('gpu.reload'), primary: true }, () => reload()))

@@ -147,7 +147,17 @@ export interface PlanOptions {
   shaftsMode?: 'auto' | ShaftMode
   /** Eye adaptation where the block asks for it (default true; false: the A/B, LIGHT_LOOK.eyeAdaptation). */
   eyeAdaptation?: boolean
+  /** The render target's pixel count (width × height) at build time; above SSAO_FULL_RES_MAX_PIXELS SSAO runs half-res. */
+  pixels?: number
 }
+
+/**
+ * 2026-10-11 (device-loss risk on ultrawide/4K Ultra): full-res SSAO (24 samples + bilateral blur) above 2560×1440 is the
+ * heaviest full-screen pass and its buffers scale with the pixels (3440×1440 is 1.34× 1440p, 4K 2.25×): long GPU frames
+ * there risk a driver timeout (TDR) and the extra targets add VRAM pressure. Above this budget Ultra's SSAO runs at half
+ * resolution (High's ratio); the look barely changes at that pixel density.
+ */
+export const SSAO_FULL_RES_MAX_PIXELS = 2560 * 1440
 
 /** The stack of a preset on this GPU (see the file comment for the rules). */
 export function planPost(mode: RenderPath, q: Readonly<RenderQuality>, gpu: Readonly<GpuInfo>, o: PlanOptions = {}): PostPlan {
@@ -163,7 +173,9 @@ export function planPost(mode: RenderPath, q: Readonly<RenderQuality>, gpu: Read
   if (q.ssao?.optional && scale0 < 1) plan.dropped.push('ssao: optional, render scale < 1 keeps FSR')
   else if (q.ssao && o.ssao === false) plan.dropped.push('ssao: off (RenderPostOptions.ssao)')
   else if (q.ssao) {
-    if (prepassOk) plan.ssao = { ratio: q.ssao.halfRes ? 0.5 : 1, samples: q.ssao.samples }
+    const big = !q.ssao.halfRes && (o.pixels ?? 0) > SSAO_FULL_RES_MAX_PIXELS
+    if (big) plan.dropped.push(`ssao: half-res above ${SSAO_FULL_RES_MAX_PIXELS} px (${o.pixels} px)`)
+    if (prepassOk) plan.ssao = { ratio: q.ssao.halfRes || big ? 0.5 : 1, samples: q.ssao.samples }
     else plan.dropped.push(`ssao: ${why}`)
   }
   if (q.ssr !== 'off') {
@@ -599,6 +611,7 @@ export class RenderPost implements RenderPart {
       lightShafts: this.lightShafts,
       shaftsMode: this.shaftsMode,
       eyeAdaptation: LIGHT_LOOK.eyeAdaptation,
+      pixels: renderPixels(this.render.scene),
     })
   }
 
@@ -1049,6 +1062,16 @@ export function renderPostOf(scene: Scene): RenderPost | null {
 }
 
 /** Creates the post part and plugs it into `render` (WorldRender.post). */
+/** The scene's render target size in pixels (0 when the engine cannot say: a test's fake scene). */
+function renderPixels(scene: Scene): number {
+  try {
+    const e = scene.getEngine()
+    return Math.max(0, e.getRenderWidth() * e.getRenderHeight()) || 0
+  } catch {
+    return 0
+  }
+}
+
 export function installRenderPost(render: WorldRender, opts: RenderPostOptions = {}): RenderPost {
   render.post?.dispose?.()
   const post = new RenderPost(render, opts)

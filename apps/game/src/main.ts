@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   installUiSounds(cue => audio.ui(cue))
   const transport = createTransport(params.mock, params.gm)
   const app = new App(engineResult.engine, engineResult.kind, params, transport, catalog, art, audio.music!, audio)
-  // A lost graphics device reloads straight back into the world instead of leaving it black (gpu-loss.ts).
+  // A lost graphics device: a notice with a Reload button (back into the world), never an automatic reload (gpu-loss.ts).
   const gpuGuard = installGpuLossGuard(app, engineResult.kind)
   // A 3D view that renders nothing without a loss: the help (gpu-watchdog.ts).
   installBlackWatchdog(app.engine, detail => gpuGuard.blackOutput(detail))
