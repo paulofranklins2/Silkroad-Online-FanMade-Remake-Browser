@@ -706,8 +706,9 @@ export class World {
       if (e.move) s.move = { ...e.move, from: [...e.move.from], to: [...e.move.to] }
       if (e.invisible) s.invisible = true
       if (e.dead) s.state = 'dead'
-      const equip = visibleEquip(e)
-      if (Object.keys(equip).length > 0) s.equip = equip
+      // Always sent, empty included: a player wearing nothing visible must not be drawn with the starter weapon (the
+      // client falls back to `weapon` only when `equip` is absent, an older server) nor stand in its grip.
+      s.equip = visibleEquip(e)
       const plus = visibleEquipPlus(e.equip)
       if (Object.keys(plus).length > 0) s.equipPlus = plus
       s.height = e.height

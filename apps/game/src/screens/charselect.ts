@@ -6,7 +6,8 @@
  *   palace steps"), through the world renderer: `app.stage.enter(STAGES.select)`. The character list and the models
  *   load beside the world (`preload`); the actors are placed and registered before the shader warm-up (`actors`). The
  *   slots are the stage's shallow arc (`stage.slots(n, selected)`); the camera never moves with n. The selected
- *   character steps toward the camera (0.4 s), plays POSE once, then STAND3; the others STAND1. Back from create the
+ *   character steps toward the camera (0.4 s) and plays POSE once; everyone stands in STAND1 and fidgets (STAND3) now
+ *   and then (FIDGET_MIN_MS..FIDGET_MAX_MS apart, each on its own clock). Back from create the
  *   camera orbits round (`orbitMs`). Leaving keeps the stage: create reuses its World, and the next screen's scene
  *   (the world, the title backdrop) releases it.
  * - **The fallback** (§0B.4): when the stage cannot be built (no export, a load error), today's release screen: the
@@ -48,17 +49,12 @@ const SLOT_X = [-2.4, -0.8, 0.8, 2.4]
 const STEP_MS = 400
 
 /**
- * The selected character's idle after POSE (SCREENS §6.1). Not a `BaseClip` name, but `clipFor` resolves it like one:
- * the weapon family's STAND3 variant, the plain STAND3, else STAND1. As a base it loops and comes back after POSE.
+ * The idle fidget (STAND3, the weapon family's variant first): every FIDGET_MIN_MS..FIDGET_MAX_MS per character. Looping it
+ * as the base kept the selected character (and the spear holders) stretching their neck nonstop (2026-10-11 report).
  */
-const SELECTED_IDLE = 'STAND3' as BaseClip
-
-/**
- * The idle of a character that is not selected: STAND1, except long weapons (spear, glaive). The male bodies' spear
- * STAND1 is the field fighter's (`STAND1_spear_stand_city_fighter`: the pole held low across the body, the blade
- * on the ground); the city stand STAND3_spear_stand_city02 holds it upright, on every body.
- */
-const idleOf = (a: CharacterActor): BaseClip => (a.family === 'spear' || a.family === 'glaive' ? SELECTED_IDLE : 'STAND1')
+const FIDGET_MIN_MS = 10_000
+const FIDGET_MAX_MS = 20_000
+const nextFidget = (now: number) => now + FIDGET_MIN_MS + Math.random() * (FIDGET_MAX_MS - FIDGET_MIN_MS)
 
 interface Point {
   x: number
@@ -79,6 +75,8 @@ interface Slot {
   from: Vector3
   to: Vector3
   t0: number
+  /** When this character fidgets next (performance.now ms). */
+  fidget: number
 }
 
 /** The 3D side of the screen: the stage, or the fallback plaza. */
@@ -201,9 +199,9 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
         const a = s.actor
         if (!a) continue
         if (j === selected) {
-          a.play(SELECTED_IDLE)
+          a.play('STAND1')
           a.playClip('POSE')
-        } else a.play(idleOf(a))
+        } else a.play('STAND1')
       }
     }
     view?.selected(slot?.actor ? slot.to : null)
@@ -243,21 +241,24 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
       tag.hidden = true
       tags.append(tag)
       const scale = heightScale(character.height)
-      const slot: Slot = { character, actor: null, scale, pick: null, tag, at: new Vector3(), from: new Vector3(), to: new Vector3(), t0: 0 }
+      const slot: Slot = { character, actor: null, scale, pick: null, tag, at: new Vector3(), from: new Vector3(), to: new Vector3(), t0: 0, fidget: nextFidget(performance.now()) }
       slots[i] = slot
       const model = app.catalog.characterOrFallback(character.model)
       const tick = set.add()
       if (!model) return tick(1)
       try {
         const worn = character.equip?.weapon
-        const family = (worn ? weaponFamilyOf(worn, app.catalog.item(worn)) : undefined) ?? character.weapon
+        // The weapon family (its stand and grip clips) only from a worn weapon, as in the world (entities.ts weaponFamily):
+        // a character with nothing in hand stands empty-handed, not gripping the starter weapon it no longer holds.
+        // Only a summary without `equip` (an older server) falls back to the starter family.
+        const family = character.equip ? (worn ? weaponFamilyOf(worn, app.catalog.item(worn)) : undefined) : character.weapon
         // the licensed body of its look (CHARACTERS §16.8) when the pack is served here, else the retail model
         const lic = licensedChoiceFor(location.search, model.gender, character.look, character.id)
         const licensed = lic && (await licensedAvailable(lic)) ? lic : null
         const actor = await library.character(licensed ? { code: model.code, ...licensedModel(licensed) } : model, {
           equip: character.equip,
           family,
-          fallbackWeapon: app.catalog.weapon(family),
+          ...(family ? { fallbackWeapon: app.catalog.weapon(family) } : {}),
           height: character.height,
           ...(licensed ? { licensed: true, ...(character.look?.body === licensed.gender ? { charLook: character.look } : {}) } : { volume: character.volume }),
           plus: character.equipPlus,
@@ -287,7 +288,7 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
       if (!actor) continue
       actor.root.position.copyFrom(s.at)
       actor.root.setEnabled(true)
-      actor.play(idleOf(actor))
+      actor.play('STAND1')
       v.add(actor.root)
       const h = actor.height * s.scale
       const pick = CreateCylinder(`pick${i}`, { diameter: 0.9, height: h }, v.scene)
@@ -398,6 +399,10 @@ export function charSelectScreen(app: App, params: ScreenParams['charselect']): 
         const f = ease(Math.min(1, Math.max(0, (now - s.t0) / STEP_MS)))
         Vector3.LerpToRef(s.from, s.to, f, s.at)
         if (a) a.root.position.copyFrom(s.at)
+        if (a && now >= s.fidget) {
+          s.fidget = nextFidget(now)
+          a.playOverlay('STAND3')
+        }
         s.pick?.position.set(s.at.x, s.pick.position.y, s.at.z)
         head.set(s.at.x, s.at.y + (a?.height ?? 1.8) * s.scale + 0.18, s.at.z)
         const p = toScreen(scene, head)
