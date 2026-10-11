@@ -218,9 +218,11 @@ describe.skipIf(!hasFields)('work/out/world/jangan-fields (the full export)', ()
       expect(retailNav).toBeGreaterThanOrEqual(PRISTINE.navInstances - dropped)
       expect(retailNav).toBeLessThanOrEqual(PRISTINE.navInstances)
     }
-    expect(m.nav!.regions).toHaveLength(307)
-    expect(m.bounds).toEqual({ minX: -2304, maxX: 1344, minZ: -1152, maxZ: 1344 })
-    expect(m.bounds).toEqual(rectBounds(p.playable!, p.centre))
+    // the beaches pass (docs/COAST.md §9.5): the 307 export regions plus the 33 synthetic regions with dry land, and the
+    // walkable bounds (the preset's walkable rectangle X 153..176 x Z 87..105) reach the sea
+    expect(m.nav!.regions).toHaveLength(m.coast ? 340 : 307)
+    expect(m.bounds).toEqual(m.coast ? { minX: -2880, maxX: 1728, minZ: -1728, maxZ: 1920 } : { minX: -2304, maxX: 1344, minZ: -1152, maxZ: 1344 })
+    expect(m.bounds).toEqual(rectBounds(p.walkable ?? p.playable!, p.centre))
     expect(m.stream!.playable).toEqual({ x0: 156, x1: 174, z0: 90, z1: 102 })
     // with the coast the world map covers the island and a region of sea round it, in the coast domain (docs/COAST.md §11,
     // CST-M): the drowned Western China side (§4.1) is not on it
