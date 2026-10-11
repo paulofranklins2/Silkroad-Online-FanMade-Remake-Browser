@@ -190,6 +190,8 @@ export interface RouteOptions {
   grassFrames?: number
   /** Seconds to settle at the plaza before the run. */
   settleS?: number
+  /** The plaza setup already ran (`routeSetup`): the driver started its heap sampling between the two. */
+  skipSetup?: boolean
 }
 
 export interface RouteResult {
@@ -210,6 +212,20 @@ export interface RouteResult {
   warm: { skippedInPlay: number; prewarmed: number; started: number } | null
 }
 
+/** The route's start: noon, clear, the plaza, the camera, the streaming settled. */
+export async function routeSetup(ctx: WorldFeatureContext, bench: { gm(cmd: string, ...a: string[]): boolean; status(): { worldReady: boolean } }, o: RouteOptions = {}): Promise<void> {
+  const cam = ctx.camera
+  bench.gm('time', '12:00')
+  bench.gm('weather', 'clear', '30', '0')
+  bench.gm('tp', String(ROUTE.start.x), String(ROUTE.start.z))
+  await sleep(3000)
+  for (let i = 0; i < 240 && !bench.status().worldReady; i++) await sleep(500)
+  cam.alpha = Math.PI / 2
+  cam.beta = 1.2
+  cam.radius = 14
+  await sleep((o.settleS ?? 10) * 1000)
+}
+
 /** The run (see the header). `bench` supplies the GM commands, the status and the uncapped measure for the grass arms. */
 export async function runRoute(
   ctx: WorldFeatureContext,
@@ -224,15 +240,7 @@ export async function runRoute(
 ): Promise<RouteResult> {
   const scene: Scene = ctx.scene
   const cam = ctx.camera
-  bench.gm('time', '12:00')
-  bench.gm('weather', 'clear', '30', '0')
-  bench.gm('tp', String(ROUTE.start.x), String(ROUTE.start.z))
-  await sleep(3000)
-  for (let i = 0; i < 240 && !bench.status().worldReady; i++) await sleep(500)
-  cam.alpha = Math.PI / 2
-  cam.beta = 1.2
-  cam.radius = 14
-  await sleep((o.settleS ?? 10) * 1000)
+  if (!o.skipSetup) await routeSetup(ctx, bench, o)
   instrumentWorld(probe, ctx)
 
   let spin = 0

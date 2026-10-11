@@ -27,7 +27,7 @@ import type { CrowdBudget } from '../world/crowd-budget.ts'
 import { PERF } from '../world/perf.ts'
 import { WORLD_FEATURES, type WorldFeature, type WorldFeatureContext, type WorldFeatureFactory } from '../world/features.ts'
 import { FrameProbe } from './frame-probe.ts'
-import { instrumentClasses, routeReport, runRoute, type RouteOptions, type RouteResult } from './route-bench.ts'
+import { instrumentClasses, routeReport, routeSetup, runRoute, type RouteOptions, type RouteResult } from './route-bench.ts'
 
 export interface BenchView {
   /** Camera orbit around the bench character: alpha (rad), beta (rad), radius (m). */
@@ -562,6 +562,12 @@ export class CharBench {
     this.results.push(r)
     console.info('[bench] ' + routeReport(r))
     return r
+  }
+
+  /** The route's start alone (then `route({ skipSetup: true })`; the driver samples the heap of the run only). */
+  async routeSetup(o: RouteOptions = {}): Promise<void> {
+    if (!this.ctx) throw new Error('not in the world')
+    await routeSetup(this.ctx, this, o)
   }
 
   /** Progress lines of the last run(). */

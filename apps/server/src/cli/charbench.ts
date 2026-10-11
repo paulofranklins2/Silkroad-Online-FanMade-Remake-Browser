@@ -179,12 +179,13 @@ async function main(): Promise<void> {
         const adapter = await page.ev('__sroCharBench.adapter()')
         if (ROUTE) {
           const t0 = Date.now()
-          // the garbage the run makes (GC pauses are spikes): V8's sampling heap profiler over the whole route
+          // the garbage the run makes (GC pauses are spikes): V8's sampling heap profiler over the route itself
+          await page.ev(`__sroCharBench.routeSetup()`, 600_000)
           if (flag('alloc')) {
             await page.send('HeapProfiler.enable')
             await page.send('HeapProfiler.startSampling', { samplingInterval: 65536, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
           }
-          const r = (await page.ev(`__sroCharBench.route()`, 1_800_000)) as Record<string, any>
+          const r = (await page.ev(`__sroCharBench.route({ skipSetup: true })`, 1_800_000)) as Record<string, any>
           if (flag('alloc')) {
             const { profile } = await page.send('HeapProfiler.stopSampling', {}, 300_000)
             writeFileSync(join(OUT, `${CONFIGS[ci]}.alloc.txt`), topAlloc(profile).join(String.fromCharCode(10)))
