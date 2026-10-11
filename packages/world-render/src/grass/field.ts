@@ -232,6 +232,8 @@ export class GrassField implements GroundCover, GrassFieldAccess {
   private readonly ringStyle = new Vector4(0, 1, 1, 1)
   private readonly ringView = new Vector4(0, GRASS_MIN_BLADE_PX, 0, 0)
   private readonly wind = new Vector4(0.8, 0.6, 0, 0)
+  /** Overall Pass: the near field's gust waves (grGust: wind direction x, z, strength 0..1, the sway clock s). */
+  readonly gust = new Vector4(0.8, 0.6, 0.15, 0)
   private ringKey = ''
   private ringDirty = true
   private readonly unadoptRing: () => void
@@ -380,6 +382,7 @@ export class GrassField implements GroundCover, GrassFieldAccess {
     mat.setVector4('grStyle', this.styleVec)
     mat.setVector4('grPlayer', this.player)
     mat.setVector4('grView', this.view)
+    mat.setVector4('grGust', this.gust)
     mat.setArray4('grPal', this.table.palette)
     return mat
   }
@@ -550,6 +553,7 @@ export class GrassField implements GroundCover, GrassFieldAccess {
     if (this.frame++ % 30 === 0) this.regionVector.y = (this.host.terrainParams?.().lightmap ?? true) ? 1 : 0
     const cam = this.scene.activeCamera
     this.feed(cam, camera)
+    this.feedGust()
     const t0 = this.now()
     let planes: Plane[] | null = null
     if (cam) {
@@ -644,6 +648,19 @@ export class GrassField implements GroundCover, GrassFieldAccess {
     this.stats.ring[2] = counts[2]
     this.stats.vertices += verts
     this.stats.triangles += tris
+  }
+
+  /**
+   * Overall Pass: the gust waves follow the weather's wind (wxB: direction x, z, strength 0..1, its sway clock), so they
+   * roll faster and lean harder as a storm builds; without weather, a light breeze on the field's own clock.
+   */
+  private feedGust(): void {
+    const wx = this.scatter?.sharedUniforms?.get('wxB')
+    if (wx instanceof Vector4) {
+      const l = Math.hypot(wx.x, wx.y)
+      if (l > 1e-3) this.gust.set(wx.x / l, wx.y / l, Math.min(1, Math.max(0, wx.z)), wx.w)
+      else this.gust.set(0.8, 0.6, Math.min(1, Math.max(0, wx.z)), wx.w)
+    } else this.gust.set(0.8, 0.6, 0.15, this.now() / 1000)
   }
 
   /** The player's push (the camera's target: the game's orbit camera follows the character) and the pixel floor. */

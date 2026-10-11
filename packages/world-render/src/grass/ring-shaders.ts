@@ -31,7 +31,7 @@ import type { WorldShaderChunks } from '../shader-chunks.ts'
 import { WORLD_SHADER_CHUNKS, type ShaderSources } from '../shaders.ts'
 import { RING_OUT_NOISE_M } from './cull.ts'
 import { GRASS_RING_HEIGHT_GRID, GRASS_RING_TEXELS, GRASS_RING_WINDOW_M } from './ring-window.ts'
-import { GRASS_BAND_FREQ, GRASS_PALETTE_SLOTS, grassHeightFn, grassSkeleton, type GrassSkeletonParts } from './shaders.ts'
+import { GRASS_BAND_FREQ, GRASS_LOOK_GLSL, GRASS_LOOK_WGSL, GRASS_PALETTE_SLOTS, grassHeightFn, grassSkeleton, type GrassSkeletonParts } from './shaders.ts'
 
 export const GRASS_RING_FIELD_SAMPLER = 'grRingA'
 export const GRASS_RING_HEIGHT_SAMPLER = 'grRingH'
@@ -111,7 +111,8 @@ const RING_BODY_WGSL = /* wgsl */ `
   let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   tip = tip * hue * (0.92 + 0.16 * vertexInputs.bladeB.w);
   base = base * mix(vec3f(1.0), hue, 0.5);
-  if (vertexInputs.bladeB.w > 0.985) {
+  tip = mix(tip, vec3f(0.70, 0.62, 0.36), grDry(rxz) * 0.6);
+  if (vertexInputs.bladeB.w > 0.972) {
     tip = vec3f(0.62, 0.55, 0.30);
     base = vec3f(0.36, 0.32, 0.16);
   }
@@ -212,7 +213,8 @@ const RING_BODY_GLSL = /* glsl */ `
   vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
   tip *= hue * (0.92 + 0.16 * bladeB.w);
   base *= mix(vec3(1.0), hue, 0.5);
-  if (bladeB.w > 0.985) {
+  tip = mix(tip, vec3(0.70, 0.62, 0.36), grDry(rxz) * 0.6);
+  if (bladeB.w > 0.972) {
     tip = vec3(0.62, 0.55, 0.30);
     base = vec3(0.36, 0.32, 0.16);
   }
@@ -268,7 +270,7 @@ export const GRASS_RING_PARTS: GrassSkeletonParts = {
   vertexTextures: [GRASS_RING_FIELD_SAMPLER, GRASS_RING_HEIGHT_SAMPLER],
   varyings: [],
   sway: true,
-  vertexFns: RING_HEIGHT,
+  vertexFns: { wgsl: RING_HEIGHT.wgsl + GRASS_LOOK_WGSL, glsl: RING_HEIGHT.glsl + GRASS_LOOK_GLSL },
   vertexBody: { wgsl: RING_BODY_WGSL, glsl: RING_BODY_GLSL },
   fragmentBody: {
     wgsl: '  let c = vec4f(fragmentInputs.vCol, 1.0);\n',

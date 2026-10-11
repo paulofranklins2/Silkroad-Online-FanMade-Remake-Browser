@@ -164,6 +164,32 @@ export const GRASS_HEIGHT_WGSL = NEAR_HEIGHT.wgsl
 export const GRASS_HEIGHT_GLSL = NEAR_HEIGHT.glsl
 
 /**
+ * Overall Pass (grass): the field's look helpers, shared by the near field and the meadow ring.
+ * - `grDry(q)`: 0..1 dry, straw-coloured patches (≈ 25 m blobs with a finer edge), the same wherever grass draws.
+ * - `grGustAt(q, gw)`: the gust waves that roll across the fields: two octaves of value noise advected downwind
+ *   (gw = wind direction x, z (unit), strength 0..1, the weather's sway clock s), thresholded into travelling bands;
+ *   × 0.25 in a calm, × 1.35 in a storm. Blades lean downwind and their tips catch the light where a gust passes.
+ */
+export const GRASS_LOOK_WGSL = /* wgsl */ `fn grDry(q: vec2f) -> f32 {
+  return smoothstep(0.6, 0.82, grNoise(q * 0.043 + vec2f(31.0, 7.0)) * 0.75 + grNoise(q * 0.21) * 0.25);
+}
+fn grGustAt(q: vec2f, gw: vec4f) -> f32 {
+  let a = q - gw.xy * gw.w * (2.5 + 5.0 * gw.z);
+  let n = grNoise(a * 0.05) * 0.65 + grNoise(a * 0.14 + vec2f(9.0, 4.0)) * 0.35;
+  return smoothstep(0.42, 0.82, n) * (0.25 + 1.1 * gw.z);
+}
+`
+export const GRASS_LOOK_GLSL = /* glsl */ `float grDry(vec2 q) {
+  return smoothstep(0.6, 0.82, grNoise(q * 0.043 + vec2(31.0, 7.0)) * 0.75 + grNoise(q * 0.21) * 0.25);
+}
+float grGustAt(vec2 q, vec4 gw) {
+  vec2 a = q - gw.xy * gw.w * (2.5 + 5.0 * gw.z);
+  float n = grNoise(a * 0.05) * 0.65 + grNoise(a * 0.14 + vec2(9.0, 4.0)) * 0.35;
+  return smoothstep(0.42, 0.82, n) * (0.25 + 1.1 * gw.z);
+}
+`
+
+/**
  * Builds a shader pair on the grass skeleton with `lanes`' chunks (default WORLD_SHADER_CHUNKS). With every chunk
  * empty the skeleton is the retail grass's minus its texture: the same points, uniforms and varyings (vCol for vUV).
  * `windowM`: the side (m) of the window whose A channel `scLightmap` is (GRASS_FAR: the meadow ring's is 832 m).
@@ -346,6 +372,7 @@ export const GRASS_UNIFORMS: readonly Decl[] = [
   { name: 'grPal', wgsl: `array<vec4f, ${GRASS_PALETTE_SLOTS * 2}>`, glsl: `vec4[${GRASS_PALETTE_SLOTS * 2}]` },
   { name: 'grPlayer', wgsl: 'vec4f', glsl: 'vec4' },
   { name: 'grView', wgsl: 'vec4f', glsl: 'vec4' },
+  { name: 'grGust', wgsl: 'vec4f', glsl: 'vec4' },
 ]
 
 const MID = (1 / (2 * GRASS_MID_WIDTH)).toFixed(6)
@@ -397,53 +424,71 @@ const GRASS_BODY_WGSL = /* wgsl */ `
   var base = uniforms.grPal[pi * 2].rgb;
   var tip = uniforms.grPal[pi * 2 + 1].rgb;
   let hue = mix(vec3f(0.86, 1.02, 1.08), vec3f(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
-  tip = tip * hue * (0.92 + 0.16 * vertexInputs.bladeB.w);
+  let r4 = vertexInputs.bladeB.w;
+  let cj = fract(crand * 5.31);
+  tip = tip * hue * (0.86 + 0.24 * r4) * mix(vec3f(1.04, 1.0, 0.9), vec3f(0.94, 1.02, 1.06), cj);
   base = base * mix(vec3f(1.0), hue, 0.5);
-  if (vertexInputs.bladeB.w > 0.985) {
-    tip = vec3f(0.62, 0.55, 0.30);
+  tip = mix(vec3f(dot(tip, vec3f(0.3, 0.59, 0.11))), tip, 0.86);
+  let lush = grNoise(rxz * 0.06 + vec2f(13.0, 3.0));
+  tip = tip * mix(0.8, 1.06, lush);
+  base = base * mix(0.84, 1.0, lush);
+  let dry = grDry(rxz);
+  tip = mix(tip, vec3f(0.70, 0.62, 0.36) * (0.9 + 0.2 * r4), dry * (0.45 + 0.4 * cj));
+  base = mix(base, base * vec3f(1.05, 0.98, 0.78), dry * 0.6);
+  if (r4 > 0.972) {
+    tip = vec3f(0.64, 0.56, 0.31);
     base = vec3f(0.36, 0.32, 0.16);
   }
+  let gw = uniforms.grGust;
+  let gust = grGustAt(rxz, gw);
   var p = root;
   var wp = root;
   var h = 0.0;
   let s = 1.0;
   if (kind < 0.5) {
-    let H = mix(0.30, 0.72, r1) * mix(0.55, 1.0, fa.r) * edge * fade * uniforms.grLod1.w;
+    let tallM = mix(0.8, 1.3, smoothstep(0.35, 0.8, grNoise(rxz * 0.034 + vec2f(5.0, 11.0))));
+    let seed = step(0.93, r1) * step(tier, 0.5);
+    let H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
+      * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * uniforms.grLod1.w;
     let grPx = distance(uniforms.scCamera.xyz, root) * uniforms.grView.x;
-    let W = max(uniforms.grStyle.x * (0.75 + 0.5 * vertexInputs.bladeB.w) * comp, grPx * uniforms.grView.y * ${MID});
+    let W = max(uniforms.grStyle.x * (0.7 + 0.6 * r4) * (1.0 - 0.45 * seed) * comp, grPx * uniforms.grView.y * ${MID});
     let fdir = normalize(mix(vec2f(cos(yaw), sin(yaw)), toCam, uniforms.grStyle.y) + vec2f(0.0001));
     let sd = vec2f(-fdir.y, fdir.x);
     let ldir = vec2f(cos(yaw + 1.3), sin(yaw + 1.3));
     let lean = (0.12 + 0.38 * vertexInputs.bladeB.z) * H * bt * bt;
     let w = W * pow(1.0 - bt, 0.7) * side;
-    p = root + vec3f(sd.x * w + ldir.x * lean, bt * H, sd.y * w + ldir.y * lean);
+    let gb = gust * bt * bt * H;
+    p = root + vec3f(sd.x * w + ldir.x * lean + gw.x * gb * 0.75, bt * H - gb * 0.3, sd.y * w + ldir.y * lean + gw.y * gb * 0.75);
     let away = rxz - uniforms.grPlayer.xz;
     let pd = length(away);
     let push = (1.0 - smoothstep(0.2, uniforms.grPlayer.w, pd)) * bt * bt * H * 0.9;
     p = p + vec3f(away.x, 0.0, away.y) / max(pd, 0.001) * push - vec3f(0.0, push * 0.5, 0.0);
-    vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8));
-    vertexOutputs.vShade = mix(0.5, 1.0, pow(bt, 0.6));
+    tip = mix(tip, vec3f(0.74, 0.64, 0.42), seed * 0.8);
+    let sheen = gust * 0.3 * bt;
+    vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3f(sheen * 0.06);
+    vertexOutputs.vShade = mix(0.64, 1.0, pow(bt, 0.5));
   } else {
-    let fl = step(crand, fa.g * 1.4) * (1.0 - smoothstep(uniforms.grStyle.z * 0.7, uniforms.grStyle.z, camD)) * step(0.001, fa.r);
+    let drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2f(2.0, 9.0)));
+    let fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(uniforms.grStyle.z * 0.7, uniforms.grStyle.z, camD)) * step(0.001, fa.r);
     let HF = mix(0.38, 0.62, r1) * fl * uniforms.grLod1.w;
     let ldir = vec2f(cos(yaw), sin(yaw)) * 0.1 * HF;
     let top = root + vec3f(ldir.x, HF, ldir.y);
-    let fcol = floor(fract(vertexInputs.bladeB.w * 7.3) * 5.0);
-    var petal = vec3f(0.95, 0.93, 0.86);
+    let fcol = floor(fract(grNoise(rxz * 0.05 + vec2f(7.0, 1.0)) * 3.0 + vertexInputs.bladeB.w * 0.35) * 5.0);
+    var petal = vec3f(0.92, 0.91, 0.84);
     if (fcol > 3.5) {
-      petal = vec3f(0.86, 0.22, 0.16);
+      petal = vec3f(0.80, 0.30, 0.22);
     } else if (fcol > 2.5) {
-      petal = vec3f(0.95, 0.55, 0.66);
+      petal = vec3f(0.90, 0.62, 0.70);
     } else if (fcol > 1.5) {
-      petal = vec3f(0.66, 0.50, 0.86);
+      petal = vec3f(0.62, 0.52, 0.80);
     } else if (fcol > 0.5) {
-      petal = vec3f(0.98, 0.80, 0.22);
+      petal = vec3f(0.94, 0.80, 0.32);
     }
     if (kind < 1.5) {
       let n = normalize(vec3f(toCam.x, 1.4, toCam.y));
       let u = normalize(cross(n, vec3f(0.3, 0.0, 1.0)));
       let v = cross(n, u);
-      let R = mix(0.07, 0.11, vertexInputs.bladeB.z) * fl;
+      let R = mix(0.05, 0.085, vertexInputs.bladeB.z) * fl;
       p = top + (u * side + v * bt) * R;
       let centre = step(length(vec2f(side, bt)), 0.01);
       vertexOutputs.vCol = mix(petal, vec3f(0.95, 0.75, 0.15), centre);
@@ -496,44 +541,62 @@ const GRASS_BODY_GLSL = /* glsl */ `
   vec3 base = grPal[pi * 2].rgb;
   vec3 tip = grPal[pi * 2 + 1].rgb;
   vec3 hue = mix(vec3(0.86, 1.02, 1.08), vec3(1.12, 1.06, 0.78), smoothstep(0.25, 0.75, n1 * 0.6 + n2 * 0.4));
-  tip *= hue * (0.92 + 0.16 * bladeB.w);
+  float r4 = bladeB.w;
+  float cj = fract(crand * 5.31);
+  tip *= hue * (0.86 + 0.24 * r4) * mix(vec3(1.04, 1.0, 0.9), vec3(0.94, 1.02, 1.06), cj);
   base *= mix(vec3(1.0), hue, 0.5);
-  if (bladeB.w > 0.985) {
-    tip = vec3(0.62, 0.55, 0.30);
+  tip = mix(vec3(dot(tip, vec3(0.3, 0.59, 0.11))), tip, 0.86);
+  float lush = grNoise(rxz * 0.06 + vec2(13.0, 3.0));
+  tip *= mix(0.8, 1.06, lush);
+  base *= mix(0.84, 1.0, lush);
+  float dry = grDry(rxz);
+  tip = mix(tip, vec3(0.70, 0.62, 0.36) * (0.9 + 0.2 * r4), dry * (0.45 + 0.4 * cj));
+  base = mix(base, base * vec3(1.05, 0.98, 0.78), dry * 0.6);
+  if (r4 > 0.972) {
+    tip = vec3(0.64, 0.56, 0.31);
     base = vec3(0.36, 0.32, 0.16);
   }
+  vec4 gw = grGust;
+  float gust = grGustAt(rxz, gw);
   vec3 p = root;
   vec3 wp = root;
   float h = 0.0;
   float s = 1.0;
   if (kind < 0.5) {
-    float H = mix(0.30, 0.72, r1) * mix(0.55, 1.0, fa.r) * edge * fade * grLod1.w;
+    float tallM = mix(0.8, 1.3, smoothstep(0.35, 0.8, grNoise(rxz * 0.034 + vec2(5.0, 11.0))));
+    float seed = step(0.93, r1) * step(tier, 0.5);
+    float H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
+      * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * grLod1.w;
     float grPx = distance(scCamera.xyz, root) * grView.x;
-    float W = max(grStyle.x * (0.75 + 0.5 * bladeB.w) * comp, grPx * grView.y * ${MID});
+    float W = max(grStyle.x * (0.7 + 0.6 * r4) * (1.0 - 0.45 * seed) * comp, grPx * grView.y * ${MID});
     vec2 fdir = normalize(mix(vec2(cos(yaw), sin(yaw)), toCam, grStyle.y) + vec2(0.0001));
     vec2 sd = vec2(-fdir.y, fdir.x);
     vec2 ldir = vec2(cos(yaw + 1.3), sin(yaw + 1.3));
     float lean = (0.12 + 0.38 * bladeB.z) * H * bt * bt;
     float w = W * pow(1.0 - bt, 0.7) * side;
-    p = root + vec3(sd.x * w + ldir.x * lean, bt * H, sd.y * w + ldir.y * lean);
+    float gb = gust * bt * bt * H;
+    p = root + vec3(sd.x * w + ldir.x * lean + gw.x * gb * 0.75, bt * H - gb * 0.3, sd.y * w + ldir.y * lean + gw.y * gb * 0.75);
     vec2 away = rxz - grPlayer.xz;
     float pd = length(away);
     float push = (1.0 - smoothstep(0.2, grPlayer.w, pd)) * bt * bt * H * 0.9;
     p += vec3(away.x, 0.0, away.y) / max(pd, 0.001) * push - vec3(0.0, push * 0.5, 0.0);
-    vCol = mix(base, tip, pow(bt, 0.8));
-    vShade = mix(0.5, 1.0, pow(bt, 0.6));
+    tip = mix(tip, vec3(0.74, 0.64, 0.42), seed * 0.8);
+    float sheen = gust * 0.3 * bt;
+    vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3(sheen * 0.06);
+    vShade = mix(0.64, 1.0, pow(bt, 0.5));
   } else {
-    float fl = step(crand, fa.g * 1.4) * (1.0 - smoothstep(grStyle.z * 0.7, grStyle.z, camD)) * step(0.001, fa.r);
+    float drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2(2.0, 9.0)));
+    float fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(grStyle.z * 0.7, grStyle.z, camD)) * step(0.001, fa.r);
     float HF = mix(0.38, 0.62, r1) * fl * grLod1.w;
     vec2 ldir = vec2(cos(yaw), sin(yaw)) * 0.1 * HF;
     vec3 top = root + vec3(ldir.x, HF, ldir.y);
-    float fcol = floor(fract(bladeB.w * 7.3) * 5.0);
-    vec3 petal = fcol > 3.5 ? vec3(0.86, 0.22, 0.16) : fcol > 2.5 ? vec3(0.95, 0.55, 0.66) : fcol > 1.5 ? vec3(0.66, 0.50, 0.86) : fcol > 0.5 ? vec3(0.98, 0.80, 0.22) : vec3(0.95, 0.93, 0.86);
+    float fcol = floor(fract(grNoise(rxz * 0.05 + vec2(7.0, 1.0)) * 3.0 + bladeB.w * 0.35) * 5.0);
+    vec3 petal = fcol > 3.5 ? vec3(0.80, 0.30, 0.22) : fcol > 2.5 ? vec3(0.90, 0.62, 0.70) : fcol > 1.5 ? vec3(0.62, 0.52, 0.80) : fcol > 0.5 ? vec3(0.94, 0.80, 0.32) : vec3(0.92, 0.91, 0.84);
     if (kind < 1.5) {
       vec3 n = normalize(vec3(toCam.x, 1.4, toCam.y));
       vec3 u = normalize(cross(n, vec3(0.3, 0.0, 1.0)));
       vec3 v = cross(n, u);
-      float R = mix(0.07, 0.11, bladeB.z) * fl;
+      float R = mix(0.05, 0.085, bladeB.z) * fl;
       p = top + (u * side + v * bt) * R;
       float centre = step(length(vec2(side, bt)), 0.01);
       vCol = mix(petal, vec3(0.95, 0.75, 0.15), centre);
@@ -559,7 +622,7 @@ export const GRASS_PARTS: GrassSkeletonParts = {
   vertexTextures: [GRASS_FIELD_SAMPLER, GRASS_HEIGHT_SAMPLER],
   varyings: [],
   sway: true,
-  vertexFns: { wgsl: GRASS_HEIGHT_WGSL, glsl: GRASS_HEIGHT_GLSL },
+  vertexFns: { wgsl: GRASS_HEIGHT_WGSL + GRASS_LOOK_WGSL, glsl: GRASS_HEIGHT_GLSL + GRASS_LOOK_GLSL },
   vertexBody: { wgsl: GRASS_BODY_WGSL, glsl: GRASS_BODY_GLSL },
   fragmentBody: {
     wgsl: '  let c = vec4f(fragmentInputs.vCol, 1.0);\n',
