@@ -205,6 +205,7 @@ export interface RouteResult {
   draws: { plaza: ReturnType<typeof drawCensus>; fields: ReturnType<typeof drawCensus> } | null
   /** Effects (shader variants) compiled during the route (each one: Babylon's shader processing on the main thread). */
   newEffects: number
+  newEffectsBy: [string, number][]
   /** Pipelines made in the background during the route: in-play skips (a visible mesh waited), new meshes prewarmed, started. */
   warm: { skippedInPlay: number; prewarmed: number; started: number } | null
 }
@@ -265,8 +266,8 @@ export async function runRoute(
     legs.push({ tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: 0, reached: true })
   }
   const plazaDraws = drawCensus(scene)
-  const effectsOf = () => Object.keys((eng as unknown as { _compiledEffects?: object })._compiledEffects ?? {}).length
-  const effects0 = effectsOf()
+  const effectKeys = () => Object.keys((eng as unknown as { _compiledEffects?: object })._compiledEffects ?? {})
+  const effects0 = new Set(effectKeys())
   const pw = PipelineWarm.for(eng)
   const w0 = pw ? { skippedInPlay: pw.skippedInPlay, prewarmed: pw.prewarmed, started: pw.started } : null
   probe.start()
@@ -314,7 +315,15 @@ export async function runRoute(
   }
   const summary = probe.stop()
   const fieldsDraws = drawCensus(scene)
-  const newEffects = effectsOf() - effects0
+  const fresh = effectKeys().filter(k => !effects0.has(k))
+  const newEffects = fresh.length
+  const byShader = new Map<string, number>()
+  for (const k of fresh) {
+    const n = k.split(/[+@
+]/)[0]!.slice(0, 40)
+    byShader.set(n, (byShader.get(n) ?? 0) + 1)
+  }
+  const newEffectsBy = [...byShader].sort((a, b) => b[1] - a[1]).slice(0, 15)
   const warm = pw && w0 ? { skippedInPlay: pw.skippedInPlay - w0.skippedInPlay, prewarmed: pw.prewarmed - w0.prewarmed, started: pw.started - w0.started } : null
   scene.onBeforeRenderObservable.remove(spinObs)
   eng.onEndFrameObservable.remove(gpuObs)
@@ -354,6 +363,7 @@ export async function runRoute(
     warm,
     draws: { plaza: plazaDraws, fields: fieldsDraws },
     newEffects,
+    newEffectsBy,
   }
 }
 
@@ -365,7 +375,7 @@ export function routeReport(r: RouteResult): string {
     `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.hops ? ` (${l.hops} hops)` : ''}`).join(', ')}`,
     `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
     `background pipelines: ${JSON.stringify(r.warm)}`,
-    `draw census: ${JSON.stringify(r.draws)}; new effects ${r.newEffects}`,
+    `draw census: ${JSON.stringify(r.draws)}; new effects ${r.newEffects} ${JSON.stringify(r.newEffectsBy)}`,
     `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}; new pipelines ${JSON.stringify(p.pipelines)}`,
     'system | mean | p50 | p95 | max | in spikes (ms, frames)',
     ...p.systems.slice(0, 40).map(s => `${s.label} | ${s.meanMs} | ${s.p50} | ${s.p95} | ${s.max} | ${s.inSpikesMs} (${s.spikeFrames})`),
