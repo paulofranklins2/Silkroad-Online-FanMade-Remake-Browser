@@ -92,6 +92,20 @@ const HIGH: GrassLevel = {
 }
 
 /**
+ * Overall Pass (grass): Ultra's own level: 98 blades/m² (28 clumps per 8 m side × 8 blades), the blades out to 100 m
+ * (High 82) and the meadow ring to ≈ 380 m (High 310). Measured on the route bench like the others.
+ */
+const ULTRA: GrassLevel = {
+  density: { clumpGrid: 28, blades: 8 }, near: 24, mid: 56, far: 100, fade2: [16, 23], fade1: [44, 55], cut0: [70, 99], width: 0.026, flowers: 44,
+  band: GRASS_BAND_NOISE_M,
+  ring: {
+    grid: 28, in: [70, 99], thin1: [135, 180], thin2: [230, 290], out: [325, 380], dots: [30.8, 44, 180, 240], keep2: 0.3, keep3: 0.12,
+    width: 0.075,
+  },
+  carpet: { pattern: 1, sheen: 1 },
+}
+
+/**
  * Scales a level's distances (Grass: Low keeps the full density and cuts the reach, GRASS_LIFE X3). The scaled level is
  * today's field (GRASS_FAR: Low keeps its behaviour): no meadow ring, no band noise, the plain tint.
  */
@@ -145,6 +159,7 @@ export const GRASS_LEVELS: Readonly<Record<ScatterLevel, GrassLevel | null>> = {
   low: LOW,
   medium: MEDIUM,
   high: HIGH,
+  ultra: ULTRA,
 }
 
 /** The tier of a cell at 2D distance `d` (−1: beyond the far tier). */

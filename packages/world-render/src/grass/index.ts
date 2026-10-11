@@ -18,6 +18,7 @@ export {
 export type { GrassRingRegion } from './ring-window.ts'
 export { GRASS_RING_PARTS, GRASS_RING_SHADER, GRASS_RING_UNIFORMS, grassNoise, grassRingShaders, ringTuftVisible } from './ring-shaders.ts'
 export { GRASS_LODS, bladesPerM2, buildPatch } from './patch.ts'
+export { GRASS_PUSHERS, GRASS_PUSH_REACH_M } from './shaders.ts'
 export type { GrassDensity, GrassLod, GrassPatch } from './patch.ts'
 export { BUILTIN_GRASS_PALETTES, GRASS_MASK_ONE, GRASS_REGION_M, RegionGrassBake, bakeRegionGrass, grassBakeSource, grassNeighbourBit, grassTileTable, meadowAt, tileGrassWeight } from './bake.ts'
 export type { GrassBakeOptions, GrassBakeSource, GrassOccupied, GrassSea, GrassTileTable } from './bake.ts'

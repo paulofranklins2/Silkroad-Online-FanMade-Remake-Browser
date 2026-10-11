@@ -412,6 +412,8 @@ export { createLifePart } from './life/index.ts'
 export {
   GrassField,
   GRASS_LEVELS,
+  GRASS_PUSHERS,
+  GRASS_PUSH_REACH_M,
   GrassWindow,
   bladesPerM2,
   buildPatch,

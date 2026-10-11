@@ -68,8 +68,8 @@ import {
 import { DefineSet, SharedUniforms, bindAllShared, bindShared } from './shader-chunks.ts'
 import { solidTexture } from './textures.ts'
 
-export type ScatterLevel = 'off' | 'low' | 'medium' | 'high'
-export const SCATTER_LEVELS: readonly ScatterLevel[] = ['off', 'low', 'medium', 'high']
+export type ScatterLevel = 'off' | 'low' | 'medium' | 'high' | 'ultra'
+export const SCATTER_LEVELS: readonly ScatterLevel[] = ['off', 'low', 'medium', 'high', 'ultra']
 
 export interface ScatterPreset {
   /** Share of the full density kept (0..1). */
@@ -85,6 +85,8 @@ export const SCATTER_PRESETS: Record<ScatterLevel, ScatterPreset> = {
   low: { fraction: 0.35, viewM: 40, fadeM: 10 },
   medium: { fraction: 0.6, viewM: 60, fadeM: 14 },
   high: { fraction: 1, viewM: 90, fadeM: 20 },
+  /** Overall Pass (grass): the Ultra preset's own grass level (the retail scatter keeps High's numbers). */
+  ultra: { fraction: 1, viewM: 90, fadeM: 20 },
 }
 
 /** Plant density (0..1 of the full 1 per m² grid) by tile2d type name (formats/tile2d.ts TILE2D_TYPES). */

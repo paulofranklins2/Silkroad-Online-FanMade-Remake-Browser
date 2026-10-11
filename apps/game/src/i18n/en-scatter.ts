@@ -10,4 +10,5 @@ export const enScatter = {
   'options.scatter.low': 'Low',
   'options.scatter.medium': 'Med',
   'options.scatter.high': 'High',
+  'options.scatter.ultra': 'Ultra',
 } satisfies Record<string, string>

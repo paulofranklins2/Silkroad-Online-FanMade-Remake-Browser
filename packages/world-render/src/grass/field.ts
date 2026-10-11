@@ -71,6 +71,8 @@ import {
   GRASS_HEIGHT_SAMPLER,
   GRASS_MIN_BLADE_PX,
   GRASS_PUSH_M,
+  GRASS_PUSHERS,
+  GRASS_PUSH_PARKED,
   GRASS_SHADER,
   GRASS_WINDOW_M,
   grassPixelPerMetre,
@@ -104,6 +106,11 @@ export interface GrassFieldAccess {
   invalidate?(rect?: GrassRect | null): number[]
   /** W12-SB (S-GRASS): GrassField.setMask. */
   setMask?(regionId: number, mask: ArrayLike<number> | null): boolean
+  /**
+   * Overall Pass (grass): the bodies that push the blades aside besides the local player: up to GRASS_PUSHERS
+   * (x, y, z, radius m) quadruples from `xyzr` (the nearest first; the rest of the slots are cleared).
+   */
+  setPushers?(xyzr: ArrayLike<number>, count: number): void
 }
 
 export interface GrassFieldStats {
@@ -234,6 +241,8 @@ export class GrassField implements GroundCover, GrassFieldAccess {
   private readonly wind = new Vector4(0.8, 0.6, 0, 0)
   /** Overall Pass: the near field's gust waves (grGust: wind direction x, z, strength 0..1, the sway clock s). */
   readonly gust = new Vector4(0.8, 0.6, 0.15, 0)
+  /** grPush: GRASS_PUSHERS × (x, y, z, radius); unused slots parked far away. */
+  private readonly pushers: number[] = Array.from({ length: GRASS_PUSHERS * 4 }, (_, i) => (i % 4 === 3 ? 1 : GRASS_PUSH_PARKED))
   private ringKey = ''
   private ringDirty = true
   private readonly unadoptRing: () => void
@@ -383,6 +392,7 @@ export class GrassField implements GroundCover, GrassFieldAccess {
     mat.setVector4('grPlayer', this.player)
     mat.setVector4('grView', this.view)
     mat.setVector4('grGust', this.gust)
+    mat.setArray4('grPush', this.pushers)
     mat.setArray4('grPal', this.table.palette)
     return mat
   }
@@ -930,6 +940,12 @@ export class GrassField implements GroundCover, GrassFieldAccess {
   }
 
   // ---- GrassFieldAccess ---------------------------------------------------------------------------------------------
+
+  setPushers(xyzr: ArrayLike<number>, count: number): void {
+    const p = this.pushers
+    const n = Math.min(GRASS_PUSHERS, Math.max(0, count))
+    for (let i = 0; i < GRASS_PUSHERS * 4; i++) p[i] = i < n * 4 ? xyzr[i]! : i % 4 === 3 ? 1 : GRASS_PUSH_PARKED
+  }
 
   densityAt(x: number, z: number): number {
     return this.window.densityAt(x, z)

@@ -60,6 +60,7 @@ import { climbFeature } from './features/climb.ts'
 import { clothWearFeature } from './features/cloth-wear.ts'
 import { jobLooksFeature } from './features/job-looks.ts'
 import { jobsFeature } from './features/jobs.ts'
+import { grassPushFeature } from './features/grass-push.ts'
 
 export type CombatMessage = Extract<ServerMessage, { t: 'combat' }>
 
@@ -222,6 +223,8 @@ export const WORLD_FEATURES: readonly WorldFeatureFactory[] = [
   coastFeature, // world/features/coast.ts (CST-A)
   // Wave 11 (docs/TOWN_LIFE.md §6, TL-S): after the sound and coast features (the area is set), before the town feature.
   townSoundFeature, // world/features/town-sound.ts (TL-S)
+  // Overall Pass (grass): monsters and other players push the grass aside (the nearest 8 within 25 m).
+  grassPushFeature, // world/features/grass-push.ts
   // Wave 12 (docs/WAVE_PLAN8.md D9; W12-G writes this line, WE-R fills the feature): after the sound, coast and town
   // sound features (the area and the town loops are set: the zone voice cap counts them), before the town feature.
   soundZonesFeature, // world/features/sound-zones.ts (WE-R)

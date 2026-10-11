@@ -51,6 +51,14 @@ export const GRASS_FACE_CAMERA = 0.35
 /** The player's push radius (m). */
 export const GRASS_PUSH_M = 0.9
 /**
+ * Overall Pass (grass): the other bodies that push the blades aside (monsters, other players, NPCs): the nearest
+ * GRASS_PUSHERS within GRASS_PUSH_REACH_M of the camera's target, as grPush[i] = (x, y, z, radius m); an unused slot
+ * is parked far away (GRASS_PUSH_PARKED).
+ */
+export const GRASS_PUSHERS = 8
+export const GRASS_PUSH_REACH_M = 25
+export const GRASS_PUSH_PARKED = 1e6
+/**
  * GRASS_FAR's band noise (docs/GRASS_FAR.md §2.3): value noise at this frequency (1/m, ≈ 37 m blobs) pulls the near
  * ring's tier-0 cut-off, the meadow ring's fade-in and the terrain tint's ramp inward by up to the level's `band` m, all
  * by the same amount at a point, so the hand-over between the rings wanders instead of drawing a circle.
@@ -373,6 +381,7 @@ export const GRASS_UNIFORMS: readonly Decl[] = [
   { name: 'grPlayer', wgsl: 'vec4f', glsl: 'vec4' },
   { name: 'grView', wgsl: 'vec4f', glsl: 'vec4' },
   { name: 'grGust', wgsl: 'vec4f', glsl: 'vec4' },
+  { name: 'grPush', wgsl: `array<vec4f, ${GRASS_PUSHERS}>`, glsl: `vec4[${GRASS_PUSHERS}]` },
 ]
 
 const MID = (1 / (2 * GRASS_MID_WIDTH)).toFixed(6)
@@ -447,8 +456,8 @@ const GRASS_BODY_WGSL = /* wgsl */ `
   let s = 1.0;
   if (kind < 0.5) {
     let tallM = mix(0.8, 1.3, smoothstep(0.35, 0.8, grNoise(rxz * 0.034 + vec2f(5.0, 11.0))));
-    let seed = step(0.93, r1) * step(tier, 0.5);
-    let H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
+    let seed = step(0.965, r1) * step(tier, 0.5);
+    let H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry) * (1.0 - 0.3 * fa.g)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * uniforms.grLod1.w;
     let grPx = distance(uniforms.scCamera.xyz, root) * uniforms.grView.x;
     let broad = select(1.0, select(0.6, 1.7, cj > 0.8), cj > 0.8 || cj < 0.3);
@@ -464,6 +473,13 @@ const GRASS_BODY_WGSL = /* wgsl */ `
     let pd = length(away);
     let push = (1.0 - smoothstep(0.2, uniforms.grPlayer.w, pd)) * bt * bt * H * 0.9;
     p = p + vec3f(away.x, 0.0, away.y) / max(pd, 0.001) * push - vec3f(0.0, push * 0.5, 0.0);
+    for (var gi = 0; gi < ${GRASS_PUSHERS}; gi = gi + 1) {
+      let gq = uniforms.grPush[gi];
+      let ga = rxz - gq.xz;
+      let gd = length(ga);
+      let gk = (1.0 - smoothstep(0.2, gq.w, gd)) * bt * bt * H * 0.9;
+      p = p + vec3f(ga.x, 0.0, ga.y) / max(gd, 0.001) * gk - vec3f(0.0, gk * 0.5, 0.0);
+    }
     tip = mix(tip, vec3f(0.74, 0.64, 0.42), seed * 0.8);
     let sheen = gust * 0.3 * bt;
     vertexOutputs.vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3f(sheen * 0.06);
@@ -471,7 +487,7 @@ const GRASS_BODY_WGSL = /* wgsl */ `
   } else {
     let drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2f(2.0, 9.0)));
     let fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(uniforms.grStyle.z * 0.7, uniforms.grStyle.z, camD)) * step(0.001, fa.r);
-    let HF = mix(0.22, 0.46, r1) * fl * uniforms.grLod1.w;
+    let HF = mix(0.42, 0.72, r1) * fl * uniforms.grLod1.w;
     let ldir = vec2f(cos(yaw), sin(yaw)) * 0.12 * HF;
     let top = root + vec3f(ldir.x, HF, ldir.y);
     let vr = grNoise(rxz * 0.05 + vec2f(7.0, 1.0)) + (vertexInputs.bladeB.w - 0.5) * 0.3;
@@ -584,8 +600,8 @@ const GRASS_BODY_GLSL = /* glsl */ `
   float s = 1.0;
   if (kind < 0.5) {
     float tallM = mix(0.8, 1.3, smoothstep(0.35, 0.8, grNoise(rxz * 0.034 + vec2(5.0, 11.0))));
-    float seed = step(0.93, r1) * step(tier, 0.5);
-    float H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry)
+    float seed = step(0.965, r1) * step(tier, 0.5);
+    float H = mix(0.26, 0.74, r1) * (0.78 + 0.44 * cj) * tallM * (1.0 + 0.45 * seed) * (1.0 - 0.3 * dry) * (1.0 - 0.3 * fa.g)
       * mix(0.32, 1.0, smoothstep(0.0, 0.85, fa.r)) * edge * fade * grLod1.w;
     float grPx = distance(scCamera.xyz, root) * grView.x;
     float broad = cj > 0.8 ? 1.7 : cj < 0.3 ? 0.6 : 1.0;
@@ -601,6 +617,13 @@ const GRASS_BODY_GLSL = /* glsl */ `
     float pd = length(away);
     float push = (1.0 - smoothstep(0.2, grPlayer.w, pd)) * bt * bt * H * 0.9;
     p += vec3(away.x, 0.0, away.y) / max(pd, 0.001) * push - vec3(0.0, push * 0.5, 0.0);
+    for (int gi = 0; gi < ${GRASS_PUSHERS}; gi++) {
+      vec4 gq = grPush[gi];
+      vec2 ga = rxz - gq.xz;
+      float gd = length(ga);
+      float gk = (1.0 - smoothstep(0.2, gq.w, gd)) * bt * bt * H * 0.9;
+      p += vec3(ga.x, 0.0, ga.y) / max(gd, 0.001) * gk - vec3(0.0, gk * 0.5, 0.0);
+    }
     tip = mix(tip, vec3(0.74, 0.64, 0.42), seed * 0.8);
     float sheen = gust * 0.3 * bt;
     vCol = mix(base, tip, pow(bt, 0.8)) * (1.0 + sheen) + vec3(sheen * 0.06);
@@ -608,7 +631,7 @@ const GRASS_BODY_GLSL = /* glsl */ `
   } else {
     float drift = smoothstep(0.32, 0.72, grNoise(rxz * 0.11 + vec2(2.0, 9.0)));
     float fl = step(crand, fa.g * 1.5 * drift) * (1.0 - smoothstep(grStyle.z * 0.7, grStyle.z, camD)) * step(0.001, fa.r);
-    float HF = mix(0.22, 0.46, r1) * fl * grLod1.w;
+    float HF = mix(0.42, 0.72, r1) * fl * grLod1.w;
     vec2 ldir = vec2(cos(yaw), sin(yaw)) * 0.12 * HF;
     vec3 top = root + vec3(ldir.x, HF, ldir.y);
     float vr = grNoise(rxz * 0.05 + vec2(7.0, 1.0)) + (bladeB.w - 0.5) * 0.3;

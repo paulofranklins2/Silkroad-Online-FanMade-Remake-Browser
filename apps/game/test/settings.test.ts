@@ -55,7 +55,8 @@ describe('wave-9 graphics settings', () => {
   it('Ultra is a preset with High\'s world settings and effect budget', () => {
     expect(PRESETS).toEqual(['low', 'medium', 'high', 'ultra'])
     expect(normalizeSettings({ graphics: { preset: 'ultra' } }).graphics.preset).toBe('ultra')
-    expect(qualityFor(normalizeSettings({ graphics: { preset: 'ultra' } }))).toEqual(QUALITY_PRESETS.high)
+    // Overall Pass (grass): Ultra keeps High's world settings but for its own grass level
+    expect(qualityFor(normalizeSettings({ graphics: { preset: 'ultra' } }))).toEqual({ ...QUALITY_PRESETS.high, scatter: 'ultra' })
     expect(FX_BUDGETS.ultra).toEqual(FX_BUDGETS.high)
   })
 
