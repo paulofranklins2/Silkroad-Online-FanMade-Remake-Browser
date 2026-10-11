@@ -909,10 +909,13 @@ export class RenderPost implements RenderPart {
       const target = (camera as { target?: { y: number } } | null)?.target
       this.fog.groundY = LIGHT_LOOK.groundMist && target && Number.isFinite(target.y) ? target.y : null
       this.fog.mist = LIGHT_LOOK.groundMist ? mistLevel(sky.sunElevationDeg, sky.t, this.weather) : 0
-      this.fog.sunScatter = 0.5 * (1 - 0.5 * Math.min(1, this.weather.rain))
+      // the golden glow toward the sun is forward scatter in the low haze: from flying height it thins with the haze
+      // below the eye (the yellow veil toward the sun from ~150 m)
+      const eyeAbove = camera && this.fog.groundY !== null ? Math.max(0, camera.globalPosition.y - this.fog.groundY - CAMERA_HEIGHT_M) : 0
+      this.fog.sunScatter = 0.5 * (1 - 0.5 * Math.min(1, this.weather.rain)) * Math.exp(-eyeAbove / 30)
       // (and by day a third: the horizon ring is a saturated teal that painted far walls and hills flat cyan)
       const dayW = atmosphereWeights(sky.sunElevationDeg, sky.t)[0]
-      this.fog.desaturate = LIGHT_LOOK.groundMist ? Math.min(0.85, 0.3 * dayW + 0.35 * this.weather.cloud + 0.6 * this.weather.rain) : 0
+      this.fog.desaturate = LIGHT_LOOK.groundMist ? Math.min(0.85, 0.3 * dayW + 0.35 * this.weather.cloud + 0.6 * this.weather.rain + 0.45 * (1 - Math.exp(-eyeAbove / 40))) : 0
       this.fog.update(sky, this.exposure, this.plan.toneMap)
       const ring = this.quality.horizonRingFog && sky.horizonRing !== null
       if (ring !== this.fog.ringActive) this.fog.setActive(true, ring)
