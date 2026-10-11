@@ -26,10 +26,10 @@
  *   LUTs) are drawn as before, a skipped one would leave a whole frame wrong.
  *
  * - **New meshes, ahead of view** (`watchScene`, `PERF.prewarmNew`): a mesh added during play (a streamed region's
- *   objects, a character, a plant chunk) has its effects compiled in a budgeted pass (PREWARM_BUDGET_MS a frame,
- *   `isReady(true)`: its material and shadow depth effect) and is then drawn for a few frames even out of view, as a
- *   ghost while out of view, so its pipelines are made in the background before the camera turns to it. The in-play
- *   skip above is then the rare case, not the rule.
+ *   objects, a character, a plant chunk) has its effects compiled in idle time (`requestIdleCallback`, one compile per
+ *   idle period, never inside a frame; `isReady(true)`: its material and shadow depth effect, also for hidden meshes)
+ *   and is then drawn out of view as a ghost until a frame starts no new pipeline for it, so its pipelines are made in
+ *   the background before the camera turns to it. The in-play skip above is then the rare case, not the rule.
  *
  * Other draws go straight to Babylon (one branch per draw). Not WebGPU, a Babylon whose internals differ, or a
  * disabled pipeline cache: `PipelineWarm.for` returns null and everything is as before.
@@ -75,8 +75,7 @@ type MeshDraw = (subMesh: unknown, fillMode: number, instancesCount?: number) =>
 
 const engines = new WeakMap<AbstractEngine, PipelineWarm | null>()
 
-/** The new-mesh prewarm's main-thread budget per frame (ms; effect compiles), and how many meshes it holds at once. */
-export const PREWARM_BUDGET_MS = 2
+/** The prewarm queue's size unit (the queue holds 64 × this). */
 export const PREWARM_MAX = 64
 /** Frames a prewarmed mesh is drawn out of view at most (its pipelines are usually made within 2-3). */
 export const PREWARM_FRAMES = 8
@@ -87,6 +86,15 @@ export const PREWARM_FRAMES = 8
  */
 export const PREWARM_RADIUS_M = 140
 export const PREWARM_SIDE_RAD = Math.PI / 2
+/** Meshes held (drawn out of view as ghosts) at once, and the idle time an effect compile needs to start (ms). */
+export const PREWARM_HELD_MAX = 16
+export const PREWARM_IDLE_MS = 8
+/** A held mesh: frames held, whether this frame's ghost draws started a pipeline for it, the undo. */
+interface Held {
+  frames: number
+  pending: boolean
+  undo: () => void
+}
 /** Frames a new mesh waits before its first prewarm try (its material is set after it is made), and tries at most. */
 const PREWARM_DELAY = 2
 const PREWARM_TRIES = 30
@@ -170,7 +178,10 @@ export class PipelineWarm {
       const snap = this._snapshotRendering
       if (snap?.play || snap?.record) return draw.call(this, drawType, fillMode, start, count, instancesCount)
       const state = self.prepare(this, fillMode)
-      if (self.ghostDepth > 0) return
+      if (self.ghostDepth > 0) {
+        if (state === 'pending' && self.drawingHeld) self.drawingHeld.pending = true
+        return
+      }
       if (state === 'cached') return draw.call(this, drawType, fillMode, start, count, instancesCount)
       if (play) {
         self.skippedInPlay++
@@ -192,8 +203,9 @@ export class PipelineWarm {
     if (this.watched?.scene === scene) return
     this.watched?.off()
     const queue: { m: AbstractMesh; at: number; tries: number; waits: number }[] = []
-    const held = new Map<AbstractMesh, { frames: number; undo: () => void }>()
+    const held = new Map<AbstractMesh, Held>()
     let frame = 0
+    let off = false
     const added: Observer<AbstractMesh> | null = scene.onNewMeshAddedObservable.add(m => {
       if (PERF.prewarmNew && queue.length < 64 * PREWARM_MAX) queue.push({ m, at: frame, tries: 0, waits: 0 })
     })
@@ -203,17 +215,26 @@ export class PipelineWarm {
       held.get(m)?.undo()
       held.delete(m)
     }
+    // Per frame only the held meshes: let go once a frame's ghost draws started no pipeline for them (round 5: a mesh
+    // whose effect and pipelines another mesh already made is held one frame, not eight).
     const tick: Observer<Scene> | null = scene.onBeforeRenderObservable.add(() => {
       frame++
-      for (const [m, h] of held) if (m.isDisposed() || ++h.frames >= PREWARM_FRAMES || (h.frames >= 2 && this.pending.size === 0)) release(m)
-      if (!queue.length) return
-      const t0 = performance.now()
+      for (const [m, h] of held) {
+        if (m.isDisposed() || ++h.frames >= PREWARM_FRAMES || (h.frames >= 2 && !h.pending)) release(m)
+        else h.pending = false
+      }
+    })
+    // The queue in idle time (round 5): an effect compile (Babylon's shader processing, 5-20 ms, not splittable) never
+    // runs inside a frame; at most one compile per idle period, and only with PREWARM_IDLE_MS of it left.
+    const idle = (deadline: { timeRemaining(): number; didTimeout?: boolean }): void => {
+      if (off) return
+      this.idleRuns++
       const cam = scene.activeCamera
       const eye = cam?.globalPosition
       const fwd = cam?.getForwardRay(1).direction
       const cone = Math.cos(Math.min(Math.PI, (cam?.fov ?? 0.8) * 0.9 + PREWARM_SIDE_RAD))
-      for (let i = 0; i < queue.length && held.size < PREWARM_MAX; ) {
-        if (performance.now() - t0 > PREWARM_BUDGET_MS) break
+      let compiled = false
+      for (let i = 0; i < queue.length && held.size < PREWARM_HELD_MAX && deadline.timeRemaining() > 1; ) {
         const q = queue[i]!
         if (frame - q.at < PREWARM_DELAY) {
           i++
@@ -224,8 +245,7 @@ export class PipelineWarm {
           queue.splice(i, 1)
           continue
         }
-        if (!m.isEnabled() || !m.isVisible || !m.material) {
-          // made hidden, shown later (the stockade, the town folk's parts, a LOD): waits like a mesh out of reach
+        if (!m.material) {
           if (++q.waits > 600) queue.splice(i, 1)
           else {
             q.at = frame + 15
@@ -233,7 +253,8 @@ export class PipelineWarm {
           }
           continue
         }
-        if (eye && fwd) {
+        const hidden = !m.isEnabled() || !m.isVisible
+        if (!hidden && eye && fwd) {
           // not likely to come into view (far, or behind): left for later (the in-play skip covers a surprise)
           const c = m.getBoundingInfo().boundingSphere.centerWorld
           const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z
@@ -249,12 +270,18 @@ export class PipelineWarm {
             continue
           }
         }
+        // one compile per idle period, and only with room for it
+        if (compiled || deadline.timeRemaining() < PREWARM_IDLE_MS) break
+        const t0 = performance.now()
         let ready = false
         try {
+          // a hidden mesh (disabled or invisible: the renderer never evaluates it) gets its effects compiled for its
+          // mesh state now; its pipelines follow at its first draw, in the background (the in-play rule)
           ready = m.isReady(true)
         } catch {
           ready = true // Babylon reports it at the draw, as before
         }
+        if (performance.now() - t0 > 1) compiled = true
         if (!ready && ++q.tries < PREWARM_TRIES) {
           q.at = frame // compiling: try again in a few frames
           i++
@@ -262,12 +289,21 @@ export class PipelineWarm {
         }
         queue.splice(i, 1)
         this.prewarmed++
-        held.set(m, { frames: 0, undo: this.holdOutOfView(scene, m) })
+        if (!hidden) held.set(m, this.holdOutOfView(scene, m))
       }
-    })
+      schedule()
+    }
+    const ric = (globalThis as { requestIdleCallback?: (cb: typeof idle, o?: { timeout: number }) => number }).requestIdleCallback
+    const schedule = (): void => {
+      if (off) return
+      if (ric) ric(idle, { timeout: 2000 })
+      else setTimeout(() => idle({ timeRemaining: () => PREWARM_IDLE_MS + 2 }), 50)
+    }
+    schedule()
     this.watched = {
       scene,
       off: () => {
+        off = true
         if (added) scene.onNewMeshAddedObservable.remove(added)
         if (tick) scene.onBeforeRenderObservable.remove(tick)
         for (const m of [...held.keys()]) release(m)
@@ -282,33 +318,42 @@ export class PipelineWarm {
     })
   }
 
-  /** Draws `m` whatever the frustum says, as a ghost while it is out of the camera's view; returns the undo. */
-  private holdOutOfView(scene: Scene, m: AbstractMesh): () => void {
+  /** Idle callbacks the prewarm ran (bench). */
+  idleRuns = 0
+  /** The held mesh being drawn now (its ghost draws mark it pending when they start a pipeline). */
+  private drawingHeld: Held | null = null
+
+  /** Draws `m` whatever the frustum says, as a ghost while it is out of the camera's view. */
+  private holdOutOfView(scene: Scene, m: AbstractMesh): Held {
     m.alwaysSelectAsActiveMesh = true
     const target = m as unknown as { _draw?: MeshDraw }
     const draw = target._draw
     const own = Object.prototype.hasOwnProperty.call(target, '_draw')
     const self = this
+    const h: Held = { frames: 0, pending: false, undo: () => {} }
     if (typeof draw === 'function') {
       target._draw = function (this: unknown, subMesh: unknown, fillMode: number, instancesCount?: number) {
         const planes = scene.frustumPlanes
         if (planes && !m.isInFrustum(planes)) {
           self.ghostDepth++
+          self.drawingHeld = h
           try {
             return draw.call(this, subMesh, fillMode, instancesCount)
           } finally {
             self.ghostDepth--
+            self.drawingHeld = null
           }
         }
         return draw.call(this, subMesh, fillMode, instancesCount)
       }
     }
-    return () => {
+    h.undo = () => {
       if (!m.isDisposed()) m.alwaysSelectAsActiveMesh = false
       if (typeof draw !== 'function') return
       if (own) target._draw = draw
       else delete target._draw
     }
+    return h
   }
 
   /** Pipelines started and not made yet. */
