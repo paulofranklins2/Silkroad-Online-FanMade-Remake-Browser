@@ -57,6 +57,8 @@ const f = (v: number): string => {
 export const LACE_TAP_M: readonly [number, number] = [LACE_TILE_M, LACE_TILE_M * 1.55]
 /** The breaking foam's trail behind a crest (s) and the backwash's foam decay (s). */
 export const BREAK_TRAIL_S = 2.2
+/** AAA water: the pixel footprint (m) over which the lace turns into its mean coverage (no solid far bands). */
+export const FAR_LACE_M: readonly [number, number] = [0.05, 0.3]
 export const BACKWASH_FOAM_S = 1.6
 /** The waterline's foam band: full to the first, gone by the second shore distance (m, sea side). */
 export const EDGE_BAND_M: readonly [number, number] = [0.5, 2.5]
@@ -237,6 +239,9 @@ ${common(lang)}  // Breaking: a foam line at each crest once the wave has broken
   ${F} shFe = clamp(shAmt, 0.0, 1.2) * (0.35 + 1.3 * shMot) * (0.8 + 0.4 * shL1.a);
   ${VAR} shLace = 1.0 - smoothstep(shFe * 0.65 - 0.05, shFe * 0.65 + 0.02, shDist);
   shLace = max(shLace * smoothstep(0.12, 0.3, shFe), max(shL1.g, shL2.g) * smoothstep(0.2, 0.5, shFe)) * smoothstep(0.03, 0.15, shAmt);
+  // AAA water: far away the strands are sub-pixel and the thresholded mips filled the bands solid white (stripes from
+  // the air): past a footprint of a few cm per pixel (the ocean's sroFp) the lace gives way to its mean coverage.
+  shLace = mix(shLace, clamp(shAmt, 0.0, 1.0) * (0.2 + 0.45 * shMot), smoothstep(${f(FAR_LACE_M[0])}, ${f(FAR_LACE_M[1])}, length(sroFp)));
   ${F} shFoam = ${sel('clamp(shAmt, 0.0, 1.0)', 'shLace', `${u('sroShoreB')}.z > 0.5`)};
   sroOcFoam = max(sroOcFoam, max(shFoam, shBead));
 }

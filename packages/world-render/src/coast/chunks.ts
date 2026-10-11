@@ -76,6 +76,45 @@ function jitterExpr(lang: 'wgsl' | 'glsl'): string {
   return `${f(2 * WET_EDGE_JITTER_M)} * (0.5 * sroCwNoise(p.xz / ${f(a)} + ${V2}(2.9, 8.1)) + 0.3 * sroCwNoise(p.xz / ${f(b)}) + 0.2 * sroCwNoise(p.xz / ${f(c)} + ${V2}(5.3, 1.7)) - 0.5)`
 }
 
+/**
+ * Overall Pass (AAA water): caustics on the shallow sea floor. `sroCoastWet` also sets `sroCaustic` (1 elsewhere), the
+ * key light's multiplier on the terrain under the sea (the terrain plugin folds it into its sun visibility): two
+ * drifting layers of warped sine ridges (CAUSTIC_SCALE per metre), bright where either crosses zero, faded in below the
+ * waterline and out with depth (CAUSTIC_DEPTH_M), only on the coast field's sea (not the town below the sea level,
+ * not the retail join). Not on the full define sets (no field tap there: rain on High/Ultra, when the sea is churned).
+ */
+export const CAUSTIC_SCALE = 1.9
+export const CAUSTIC_GAIN = 1.5
+export const CAUSTIC_FLOOR = 0.72
+export const CAUSTIC_DEPTH_M: readonly [number, number, number, number] = [0.05, 0.7, 3, 10]
+
+const CAUSTIC_WGSL = `var<private> sroCaustic: f32 = 1.0;
+fn sroCausPattern(q: vec2f, t: f32) -> f32 {
+  let a = sin(q.x * 1.1 + sin(q.y * 0.9 + t * 0.7) * 1.4 + t * 0.5) + sin(q.y * 1.3 + sin(q.x * 0.8 - t * 0.6) * 1.2 - t * 0.4);
+  let b = sin(q.x * 1.7 - sin(q.y * 1.5 - t * 0.9) * 1.1 - t * 0.3) + sin(q.y * 1.6 + sin(q.x * 1.4 + t * 0.5) * 1.3 + t * 0.6);
+  let ra = 1.0 - smoothstep(0.0, 0.5, abs(a));
+  let rb = 1.0 - smoothstep(0.0, 0.5, abs(b));
+  return ra * ra + rb * rb;
+}
+`
+const CAUSTIC_GLSL = `float sroCaustic = 1.0;
+float sroCausPattern(vec2 q, float t) {
+  float a = sin(q.x * 1.1 + sin(q.y * 0.9 + t * 0.7) * 1.4 + t * 0.5) + sin(q.y * 1.3 + sin(q.x * 0.8 - t * 0.6) * 1.2 - t * 0.4);
+  float b = sin(q.x * 1.7 - sin(q.y * 1.5 - t * 0.9) * 1.1 - t * 0.3) + sin(q.y * 1.6 + sin(q.x * 1.4 + t * 0.5) * 1.3 + t * 0.6);
+  float ra = 1.0 - smoothstep(0.0, 0.5, abs(a));
+  float rb = 1.0 - smoothstep(0.0, 0.5, abs(b));
+  return ra * ra + rb * rb;
+}
+`
+/** The caustic multiplier after the field tap `t` at the height `h` above the sea level (both languages). */
+function causticSet(lang: 'wgsl' | 'glsl'): string {
+  const [d0, d1, d2, d3] = CAUSTIC_DEPTH_M
+  // the clock: the swash's cycle counter × its period (s), wrapped (sin keeps its precision)
+  const clock = lang === 'wgsl' ? '(sh.x * sh.y) % 628.3185' : 'mod(sh.x * sh.y, 628.3185)'
+  const w = `smoothstep(${f(d0)}, ${f(d1)}, -h) * (1.0 - smoothstep(${f(d2)}, ${f(d3)}, -h)) * step(0.5, t.r) * (1.0 - clamp(t.a, 0.0, 1.0))`
+  return `  sroCaustic = mix(1.0, ${f(CAUSTIC_FLOOR)} + ${f(CAUSTIC_GAIN)} * sroCausPattern(p.xz * ${f(CAUSTIC_SCALE)}, ${clock}), ${w});\n`
+}
+
 /** `fn sroCoastWet(p: vec3f) -> f32`. */
 export const COAST_WET_WGSL = `uniform ${COAST_WET_XF}: vec4f;
 uniform ${COAST_WET_SHORE}: vec4f;
@@ -90,7 +129,7 @@ fn sroCwNoise(p: vec2f) -> f32 {
   let s = u * u * (vec2f(3.0) - 2.0 * u);
   return mix(mix(sroCwHash(i), sroCwHash(i + vec2f(1.0, 0.0)), s.x), mix(sroCwHash(i + vec2f(0.0, 1.0)), sroCwHash(i + vec2f(1.0, 1.0)), s.x), s.y);
 }
-#if ${FULL_SET}
+${CAUSTIC_WGSL}#if ${FULL_SET}
 fn sroCoastWet(p: vec3f) -> f32 {
   let sh = uniforms.${COAST_WET_SHORE};
   let h = p.y - sh.w;
@@ -110,6 +149,7 @@ fn sroCoastWet(p: vec3f) -> f32 {
     return 0.0;
   }
   let t = textureSampleLevel(${COAST_WET_FIELD}, ${COAST_WET_FIELD}Sampler, p.xz * uniforms.${COAST_WET_XF}.xy + uniforms.${COAST_WET_XF}.zw, 0.0);
+${causticSet('wgsl')}
   let g = (t.g * 255.0 - 128.0) * 0.5;
   let reach = 1.25 * sh.z * ${f(NOMINAL_SLOPE)} + 2.0;
   let zone = (1.0 - smoothstep(reach, reach + 4.0, max(-g, 0.0))) * (1.0 - clamp(t.a, 0.0, 1.0));
@@ -153,7 +193,7 @@ float sroCwNoise(vec2 p) {
   vec2 s = u * u * (vec2(3.0) - 2.0 * u);
   return mix(mix(sroCwHash(i), sroCwHash(i + vec2(1.0, 0.0)), s.x), mix(sroCwHash(i + vec2(0.0, 1.0)), sroCwHash(i + vec2(1.0, 1.0)), s.x), s.y);
 }
-#if ${FULL_SET}
+${CAUSTIC_GLSL}#if ${FULL_SET}
 float sroCoastWet(vec3 p) {
   vec4 sh = ${COAST_WET_SHORE};
   float h = p.y - sh.w;
@@ -168,6 +208,7 @@ float sroCoastWet(vec3 p) {
   float h = p.y - sh.w;
   if (h >= sh.z + ${f(WET_EDGE_JITTER_M)} || sh.z <= 0.0) return 0.0;
   vec4 t = textureLod(${COAST_WET_FIELD}, p.xz * ${COAST_WET_XF}.xy + ${COAST_WET_XF}.zw, 0.0);
+${causticSet('glsl')}
   float g = (t.g * 255.0 - 128.0) * 0.5;
   float reach = 1.25 * sh.z * ${f(NOMINAL_SLOPE)} + 2.0;
   float zone = (1.0 - smoothstep(reach, reach + 4.0, max(-g, 0.0))) * (1.0 - clamp(t.a, 0.0, 1.0));

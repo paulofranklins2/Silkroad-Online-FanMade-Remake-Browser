@@ -104,7 +104,7 @@ describe('the PBR terrain externs (sroCoastWet, sroGrassTint)', () => {
     const ws = Object.values(w).join('\n')
     const gs = Object.values(g).join('\n')
     for (const [src, max] of [[ws, 'let wW = max('], [gs, 'float wW = max(']] as const) {
-      expect(src).toContain(`#ifdef ${COAST_WET_DEFINE}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n#endif`)
+      expect(src).toContain(`#ifdef ${COAST_WET_DEFINE}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n  sroCloud = sroCloud * sroCaustic;\n#endif`)
       expect(src).toContain(`#ifdef ${GRASS_TINT_DEFINE}\n  alb = sroGrassTint(alb, lp, wp);\n#endif`)
       expect(src).toContain(max)
       expect(src).toContain('#ifndef SRO_T_WET')

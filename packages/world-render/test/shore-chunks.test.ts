@@ -185,7 +185,7 @@ describe('the terrain wet band extern (coast/chunks.ts)', () => {
     const g = terrainPluginCode('glsl')
     expect(Object.keys(w).sort()).toEqual(Object.keys(g).sort())
     for (const src of [Object.values(w).join('\n'), Object.values(g).join('\n')]) {
-      expect(src).toContain(`#ifdef ${COAST_WET_DEFINE}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n#endif`)
+      expect(src).toContain(`#ifdef ${COAST_WET_DEFINE}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n  sroCloud = sroCloud * sroCaustic;\n#endif`)
       expect(src).toContain('sroCwNoise')
     }
   })

@@ -414,7 +414,8 @@ function tintCall(x: TerrainExterns): string {
 function coastPre(x: TerrainExterns, lang: 'wgsl' | 'glsl'): string {
   if (!x.coastWet) return ''
   const decl = lang === 'wgsl' ? '  var sroCw = 0.0;\n' : '  float sroCw = 0.0;\n'
-  return `${decl}#ifdef ${TERRAIN_FEATURE_DEFINES.coastWet}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n#endif\n`
+  // AAA water: the sea floor's caustics (coast/chunks.ts `sroCaustic`, set by sroCoastWet) focus the key light.
+  return `${decl}#ifdef ${TERRAIN_FEATURE_DEFINES.coastWet}\n  sroCw = clamp(sroCoastWet(wp), 0.0, 1.0);\n  sroCloud = sroCloud * sroCaustic;\n#endif\n`
 }
 
 /** The weather wetness term, raised to the coast's (`max(weather, coast)`) when the coast extern exists. */
