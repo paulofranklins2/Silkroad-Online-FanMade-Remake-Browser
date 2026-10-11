@@ -73,6 +73,13 @@ export const HYSTERESIS_M = 3
 export const PLAN_MS = 250
 /** New part merges per plan at most (the rest follow on the next plans). */
 export const MERGES_PER_PLAN = 4
+/**
+ * The plan's building time (ms): past it a plan makes no new merge, outfit merge or crowd join (dropping one is always
+ * allowed) and the next plan comes after PLAN_SOON_MS instead of PLAN_MS (Overall Pass: one plan's 4 + 3 + 8 builds
+ * were 28 ms frames with 20 bots, docs/PERF_OVERALL.md).
+ */
+export const PLAN_BUILD_MS = 3
+export const PLAN_SOON_MS = 50
 
 /** The shadow rule for a preset's shadow block (null: no sun shadows, so no shadow budget). */
 export function crowdShadowRule(shadows: Readonly<ShadowQuality> | null | undefined): CrowdShadowRule | null {
@@ -390,11 +397,19 @@ export class CrowdBudget {
     let merges = MERGES_PER_PLAN
     this.outfitsLeft = OUTFITS_PER_PLAN
     this.crowdLeft = CROWD_PER_PLAN
+    const t0 = this.now()
     for (let i = 0; i < order.length; i++) {
       const t = order[i]!
       const d = this.decisions[i]!
       if (!this.mergeEnabled) d.merge = false
       t.decision = d
+      if ((merges > 0 || this.outfitsLeft > 0 || this.crowdLeft > 0) && this.now() - t0 > PLAN_BUILD_MS) {
+        // the rest of the builds go to the next plan, soon
+        merges = 0
+        this.outfitsLeft = 0
+        this.crowdLeft = 0
+        this.next = Math.min(this.next, t0 + PLAN_SOON_MS)
+      }
       // the actors first: a character the crowd tier took casts nothing (crowdJoined changes `d`)
       if (this.applyAnim(t, d, merges > 0, entries[i]!.d, !!rule)) merges--
       for (const r of t.roots) this.tell(t, r, d.cascades)
