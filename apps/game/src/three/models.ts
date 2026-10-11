@@ -3522,7 +3522,19 @@ export class CharacterActor {
     // One scan stops this actor's animatables, and the per-node scans are skipped while it is torn down.
     const scene = this.scene as Scene & { stopAnimation: Scene['stopAnimation'] }
     const mine = new Set<unknown>([this.root, ...this.root.getDescendants(false), ...this.nodes])
-    for (const a of [...scene.animatables]) if (mine.has(a.target)) a.stop()
+    // stopped without the per-animatable splice (Babylon's group stop does the same), then one compaction
+    const active = scene.animatables
+    let stopped = 0
+    for (const a of [...active]) {
+      if (!mine.has(a.target)) continue
+      ;(a.stop as (name?: string, mask?: unknown, useGlobalSplice?: boolean) => void)(undefined, undefined, true)
+      stopped++
+    }
+    if (stopped) {
+      let n = 0
+      for (let i = 0; i < active.length; i++) if ((active[i] as unknown as { _runtimeAnimations: unknown[] })._runtimeAnimations.length > 0) active[n++] = active[i]!
+      active.length = n
+    }
     const own = Object.prototype.hasOwnProperty.call(scene, 'stopAnimation')
     const stop = scene.stopAnimation
     scene.stopAnimation = function (this: Scene, target: unknown, ...rest: unknown[]) {
