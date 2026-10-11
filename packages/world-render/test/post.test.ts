@@ -100,7 +100,7 @@ describe('planPost: preset → pipeline list, in order', () => {
     const high = planPost('pbr', RENDER_PRESETS.high, GPU)
     expect(high.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default']) // item 16: SSR on High while puddles
     expect(high.shafts).toMatchObject({ level: 'high', mode: 'march', ratio: 0.5 })
-    expect(high.ssao).toEqual({ ratio: 0.5, samples: 8 })
+    expect(high.ssao).toEqual({ ratio: 0.5, samples: 12 })
     expect([high.ssr, high.aa, high.sharpen, high.fxaa, high.msaa]).toEqual(['puddles', 'taa', true, false, 1])
     const ultra = planPost('pbr', RENDER_PRESETS.ultra, GPU)
     expect(ultra.stages).toEqual(['ssao', 'ssr', 'taa', 'shafts', 'adapt', 'default'])
@@ -299,7 +299,7 @@ describe('SSAO (off from gate 1, back on since W9 LOOK)', () => {
   it('is on where the preset asks (High half res, 8 samples), off when asked, and says why', () => {
     const { render } = setup('pbr', 'high')
     const post = installRenderPost(render)
-    expect(post.plan.ssao).toEqual({ ratio: 0.5, samples: 8 })
+    expect(post.plan.ssao).toEqual({ ratio: 0.5, samples: 12 })
     expect(post.plan.stages).toContain('ssao')
     const off = installRenderPost(render, { ssao: false })
     expect(off.plan.ssao).toBeNull()

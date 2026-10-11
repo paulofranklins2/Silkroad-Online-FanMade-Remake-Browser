@@ -709,6 +709,17 @@ export class RenderPost implements RenderPart {
         a.radius = 2
         a.totalStrength = 1.35
         a.expensiveBlur = true
+        // Item 16: the quality tier. Full resolution (Ultra): a wider, softer occlusion (radius 2.5 m) with a 16-tap
+        // depth-aware blur that keeps edges (no halos round characters); every tier keeps a floor (base) so creases
+        // never go black.
+        a.base = 0.06
+        a.bilateralSamples = s.ratio >= 1 ? 16 : 12
+        a.bilateralSoften = 0.05
+        a.bilateralTolerance = 0.0002
+        if (s.ratio >= 1) {
+          a.radius = 2.5
+          a.totalStrength = 1.45
+        }
         seedSsaoCamera(a, camera)
         return a
       })

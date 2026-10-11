@@ -72,7 +72,7 @@ describe('RENDER_PRESETS (the §5.1 render rows)', () => {
     // the cluster/pool lights the terrain. The grass always.
     expect(PRESETS.map(p => RENDER_PRESETS[p].nightLights.terrainSplat)).toEqual([true, false, false, false])
     expect(PRESETS.every(p => RENDER_PRESETS[p].nightLights.grassSplat)).toBe(true)
-    expect([m.ssao, h.ssao, u.ssao]).toEqual([null, { halfRes: true, samples: 8 }, { halfRes: false, samples: 16 }])
+    expect([m.ssao, h.ssao, u.ssao]).toEqual([null, { halfRes: true, samples: 12 }, { halfRes: false, samples: 24 }]) // item 16 AO tiers
     expect([m.ssr, h.ssr, u.ssr]).toEqual(['off', 'puddles', 'always']) // item 16: High marches only while puddles
     expect([m.aa, h.aa, u.aa]).toEqual(['fxaa', 'taa', 'taa'])
     // Wave 12 (GODRAYS): the sun shafts, light on Medium and full on High and Ultra.

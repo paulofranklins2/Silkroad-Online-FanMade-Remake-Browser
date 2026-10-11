@@ -225,7 +225,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     shadows: { cascades: 3, mapSize: 2048, distanceM: 150, foliageM: 60, terrain: true, props: false, soft: 0 },
     ibl: { cubeSize: 64, refreshS: 5 },
     nightLights: { cluster: 32, poolFallback: 2, terrainSplat: false, grassSplat: true },
-    ssao: { halfRes: true, samples: 8 },
+    ssao: { halfRes: true, samples: 12 }, // item 16: 8 → 12 samples (less noise under the blur)
     // WAVE_PLAN3 §6.20 cut 4 (the wave-9 final gate, work/tmp/w9-finish/budgets.md): High missed its 16.7 ms p95 at the
     // plaza and in the crowd; SSR off took 2.3 ms of GPU and ~3 ms of p95 there. Ultra keeps it; puddles still reflect
     // the sky cube; Options → Advanced → Reflections brings it back. Item 16 (the AAA pass): back as 'puddles' (it
@@ -257,7 +257,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     shadows: { cascades: 4, mapSize: 2048, distanceM: 250, foliageM: 60, terrain: true, props: true, soft: 0.012 },
     ibl: { cubeSize: 64, refreshS: 2 },
     nightLights: { cluster: 64, poolFallback: 2, terrainSplat: false, grassSplat: true },
-    ssao: { halfRes: false, samples: 16 },
+    ssao: { halfRes: false, samples: 24 }, // item 16: the quality tier (24 samples, 16-tap bilateral blur)
     ssr: 'always',
     aa: 'taa',
     lightShafts: 'high',
