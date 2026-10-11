@@ -32,6 +32,9 @@ interface FrameRec {
   heapMB: number
   /** Route marks active during the frame (walking, spinning, the leg name). */
   tag: string
+  /** WebGPU render pipelines and bind groups Babylon created in the frame (a new pipeline compiles on the main thread). */
+  pipelines: number
+  bindGroups: number
 }
 
 export interface ProbeSummary {
@@ -47,7 +50,9 @@ export interface ProbeSummary {
   /** Per system, ranked by the time it costs in spike frames, then by the mean. */
   systems: { label: string; calls: number; meanMs: number; p50: number; p95: number; max: number; inSpikesMs: number; spikeFrames: number }[]
   /** Every frame over 33 ms (up to 60, worst first): when, how long, its CPU part, the top systems in it. */
-  spikes: { atS: number; ms: number; cpu: number; outside: number; tag: string; top: [string, number][] }[]
+  spikes: { atS: number; ms: number; cpu: number; outside: number; tag: string; pipelines: number; pipelinesBefore: number; top: [string, number][] }[]
+  /** New render pipelines: in all, in spike frames, and the frames that made any. */
+  pipelines: { total: number; inSpikes: number; frames: number; spikeFramesWithPipelines: number; spikeFramesAfterPipelines: number; bindGroups: number }
   /** Long animation frames (Chrome LoAF ≥ 50 ms) during the run: duration, blocking, style+layout, top scripts. */
   longFrames: { atS: number; ms: number; blockingMs: number; styleLayoutMs: number; scripts: [string, number][] }[]
   longTasks: { count: number; totalMs: number; maxMs: number }
@@ -82,6 +87,7 @@ export class FrameProbe {
   /** The route's current tag (route legs set it). */
   tag = ''
   private hooked: Scene | null = null
+  private eng: AbstractEngine | null = null
 
   /** Times `fn` under `label` while sampling (re-entrant calls of one label count once). */
   time<T>(label: string, fn: () => T): T {
@@ -173,6 +179,7 @@ export class FrameProbe {
     if (this.hooked === scene) return
     this.hooked = scene
     const eng: AbstractEngine = scene.getEngine()
+    this.eng = eng
     const open: Record<string, number> = {}
     const o = (k: string) => this.mine(() => {
       if (this.cur) open[k] = performance.now()
@@ -219,6 +226,8 @@ export class FrameProbe {
       sys: this.between,
       heapMB: mem ? mem.usedJSHeapSize / 1048576 : 0,
       tag: this.tag,
+      pipelines: 0,
+      bindGroups: 0,
     }
     this.between = new Map()
     this.betweenMs = 0
@@ -231,6 +240,10 @@ export class FrameProbe {
     const t = performance.now()
     r.cpu = t - r.t0
     this.lastEnd = t
+    // Babylon's WebGPU caches move this frame's counts to the *LastFrame statics before the end-frame observers run
+    const e = this.eng as unknown as { _cacheRenderPipeline?: { constructor: { NumPipelineCreationLastFrame?: number } }; _cacheBindGroups?: { constructor: { NumBindGroupsCreatedLastFrame?: number } } } | null
+    r.pipelines = e?._cacheRenderPipeline?.constructor.NumPipelineCreationLastFrame ?? 0
+    r.bindGroups = e?._cacheBindGroups?.constructor.NumBindGroupsCreatedLastFrame ?? 0
     this.cur = null
     if (r.interval > 0) this.frames.push(r)
   }
@@ -317,6 +330,13 @@ export class FrameProbe {
       spikeFrames: inSpikes.get(label)?.n ?? 0,
     }))
     systems.sort((a, b) => b.inSpikesMs - a.inSpikesMs || b.meanMs - a.meanMs)
+    const idx = new Map(F.map((f, i) => [f, i]))
+    const before = (f: FrameRec) => {
+      const i = idx.get(f)!
+      let n = 0
+      for (let j = Math.max(0, i - 3); j < i; j++) n += F[j]!.pipelines
+      return n
+    }
     const spikes = F.filter(f => f.interval > 33.4)
       .sort((a, b) => b.interval - a.interval)
       .slice(0, 60)
@@ -326,6 +346,8 @@ export class FrameProbe {
         cpu: r2(f.cpu),
         outside: r2(f.outside),
         tag: f.tag,
+        pipelines: f.pipelines,
+        pipelinesBefore: before(f),
         top: [...f.sys].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, r2(v)] as [string, number]),
       }))
     const heaps = F.map(f => f.heapMB).filter(h => h > 0)
@@ -350,6 +372,14 @@ export class FrameProbe {
       over50: iv.filter(v => v > 50).length,
       systems,
       spikes,
+      pipelines: {
+        total: F.reduce((a, f) => a + f.pipelines, 0),
+        inSpikes: F.filter(f => f.interval > 33.4).reduce((a, f) => a + f.pipelines, 0),
+        frames: F.filter(f => f.pipelines > 0).length,
+        spikeFramesWithPipelines: F.filter(f => f.interval > 33.4 && f.pipelines > 0).length,
+        spikeFramesAfterPipelines: F.filter(f => f.interval > 33.4 && f.pipelines === 0 && before(f) > 0).length,
+        bindGroups: F.reduce((a, f) => a + f.bindGroups, 0),
+      },
       longFrames: this.longFrames.sort((a, b) => b.ms - a.ms).slice(0, 40),
       longTasks: { count: this.longTasks.count, totalMs: r2(this.longTasks.totalMs), maxMs: r2(this.longTasks.maxMs) },
       heap: heaps.length ? { startMB: r2(heaps[0]!), endMB: r2(heaps.at(-1)!), maxMB: r2(Math.max(...heaps)), drops, droppedMB: r2(dropped) } : null,

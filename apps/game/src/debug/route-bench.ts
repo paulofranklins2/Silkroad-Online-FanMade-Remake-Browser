@@ -3,15 +3,15 @@
  * Noon, clear weather held, the bench character teleported to the Jangan plaza; then
  *
  *   spin-plaza   6 s standing, the camera orbiting at SPIN_DEG_S (turning the camera in town)
- *   walk-town    walking out of Jangan towards the Grassland (the server's path), the camera orbiting slowly
- *   walk-fields  on into the fields to the Grassland place
+ *   walk-town    walking out of Jangan towards the Grassland (waypoints, the server's path), the camera orbiting slowly
+ *   walk-fields  on into the fields to the Grassland place (a blocked waypoint is reached by a GM hop, counted)
  *   spin-fields  6 s standing in the grass, the camera orbiting
  *
  * then (optional) the grass cost: the fields frame with the grass meshes drawn and hidden, interleaved.
  * Every leg sets the probe's tag, so each spike says where it happened. Runs on the display's own frame pacing
  * (requestAnimationFrame: the frames the player sees), not the uncapped pump of `measure`.
  */
-import { EngineInstrumentation, type Observer, type Scene } from '@babylonjs/core'
+import { AbstractMesh, AnimationGroup, EngineInstrumentation, Material, Skeleton, TransformNode, type Observer, type Scene } from '@babylonjs/core'
 import type { World } from '@sro/world-render'
 import { CharacterActor, ModelLibrary } from '../three/models.ts'
 import { CrowdBudget } from '../world/crowd-budget.ts'
@@ -24,15 +24,25 @@ import { HudMinimap } from '../world/jangan/minimap.ts'
 import { NameplateLayout } from '../world/nameplates.ts'
 import { FrameProbe, type ProbeSummary } from './frame-probe.ts'
 
-/** The plaza start (the char bench's spot) and the Grassland GM place (the jangan-fields manifest's places). */
+/**
+ * The plaza start (the char bench's spot) and the Grassland GM place (the jangan-fields manifest's places): ≈ 330 m,
+ * walked as waypoints every WAYPOINT_M on the straight line (the server paths each); the first half is the town leg.
+ */
 export const ROUTE = {
   start: { x: 101, z: -56 },
-  /** Waypoints: out of the plaza through the town, then the fields. */
-  legs: [
-    { tag: 'walk-town', x: 20, z: 40 },
-    { tag: 'walk-fields', x: -146, z: 167 },
-  ],
+  end: { x: -146, z: 167 },
 } as const
+export const WAYPOINT_M = 30
+
+/** The route's waypoints, each tagged with its leg. */
+export function routeWaypoints(): { tag: string; x: number; z: number }[] {
+  const { start: a, end: b } = ROUTE
+  const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / WAYPOINT_M)
+  return Array.from({ length: n }, (_, i) => {
+    const k = (i + 1) / n
+    return { tag: k <= 0.5 ? 'walk-town' : 'walk-fields', x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k }
+  })
+}
 export const SPIN_DEG_S = 90
 export const WALK_SPIN_DEG_S = 30
 
@@ -50,7 +60,14 @@ let factoriesWrapped = false
  * Called at install (the feature factories must be wrapped before the world screen builds its features).
  */
 export function instrumentClasses(probe: FrameProbe): void {
-  probe.wrapProto(EntityView.prototype, ['update', 'updateLabel'], 'entities')
+  probe.wrapProto(EntityView.prototype, ['update', 'updateLabel', 'dispose'], 'entities')
+  // what a despawn costs (entities.dispose holds these)
+  probe.wrapProto(CharacterActor.prototype, ['dispose'], 'actor')
+  probe.wrapProto(AnimationGroup.prototype, ['dispose', 'stop'], 'bjs.AnimationGroup')
+  probe.wrapProto(AbstractMesh.prototype, ['dispose'], 'bjs.mesh')
+  probe.wrapProto(TransformNode.prototype, ['dispose'], 'bjs.node')
+  probe.wrapProto(Skeleton.prototype, ['dispose'], 'bjs.skeleton')
+  probe.wrapProto(Material.prototype, ['dispose'], 'bjs.material')
   probe.wrapProto(EffectList.prototype, ['update'], 'effects')
   probe.wrapProto(WorldGraphics.prototype, ['frame'], 'graphics')
   probe.wrapProto(HudMinimap.prototype, ['update'], 'minimap')
@@ -123,7 +140,7 @@ export function instrumentWorld(probe: FrameProbe, ctx: WorldFeatureContext): vo
 export interface RouteOptions {
   spinDegS?: number
   walkSpinDegS?: number
-  /** Max seconds per walking leg. */
+  /** Max seconds per waypoint. */
   legTimeoutS?: number
   /** Measure the grass with its meshes drawn / hidden at the end (frames per arm, 0 = skip). */
   grassFrames?: number
@@ -134,7 +151,8 @@ export interface RouteOptions {
 export interface RouteResult {
   engine: string
   preset: string | null
-  legs: { tag: string; seconds: number; walkedM: number; reached: boolean }[]
+  /** `hops`: waypoints the walk could not reach and teleported to (blocked path). */
+  legs: { tag: string; seconds: number; walkedM: number; reached: boolean; hops?: number }[]
   probe: ProbeSummary
   gpuMs: { p50: number; p95: number; max: number; samples: number } | null
   grass: unknown
@@ -199,36 +217,40 @@ export async function runRoute(
   probe.start()
   try {
     await spinLeg('spin-plaza')
-    for (const leg of ROUTE.legs) {
-      probe.tag = leg.tag
+    for (const tag of ['walk-town', 'walk-fields']) {
+      probe.tag = tag
       spin = o.walkSpinDegS ?? WALK_SPIN_DEG_S
       const t0 = performance.now()
       let walked = 0
+      let hops = 0
       let last = self()?.pos.clone() ?? null
-      let reached = false
-      let still = 0
-      ctx.send(intents.moveTo(leg.x, leg.z))
-      while (performance.now() - t0 < (o.legTimeoutS ?? 90) * 1000) {
-        await sleep(500)
-        instrumentWorld(probe, ctx)
-        const p = self()?.pos
-        if (!p) continue
-        const step = last ? Math.hypot(p.x - last.x, p.z - last.z) : 0
-        walked += step
-        last = p.clone()
-        if (Math.hypot(p.x - leg.x, p.z - leg.z) < 4) {
-          reached = true
-          break
-        }
-        // stopped short (a path end, a blocked step): ask again
-        still = step < 0.2 ? still + 1 : 0
-        if (still >= 3) {
-          ctx.send(intents.moveTo(leg.x, leg.z))
-          still = 0
+      for (const wp of routeWaypoints().filter(w => w.tag === tag)) {
+        const w0 = performance.now()
+        let still = 0
+        ctx.send(intents.moveTo(wp.x, wp.z))
+        while (performance.now() - w0 < (o.legTimeoutS ?? 20) * 1000) {
+          await sleep(250)
+          instrumentWorld(probe, ctx)
+          const p = self()?.pos
+          if (!p) continue
+          const step = last ? Math.hypot(p.x - last.x, p.z - last.z) : 0
+          walked += step
+          last = p.clone()
+          if (Math.hypot(p.x - wp.x, p.z - wp.z) < 5) break
+          // stopped short (blocked, a fight, a wall): ask again, then hop there (the route must stay comparable)
+          still = step < 0.1 ? still + 1 : 0
+          if (still === 6) ctx.send(intents.moveTo(wp.x, wp.z))
+          if (still >= 12) {
+            bench.gm('tp', String(Math.round(wp.x)), String(Math.round(wp.z)))
+            hops++
+            last = null
+            await sleep(500)
+            break
+          }
         }
       }
       spin = 0
-      legs.push({ tag: leg.tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: Math.round(walked), reached })
+      legs.push({ tag, seconds: Math.round(performance.now() - t0) / 1000, walkedM: Math.round(walked), reached: hops === 0, hops })
     }
     await spinLeg('spin-fields')
   } finally {
@@ -279,13 +301,13 @@ export function routeReport(r: RouteResult): string {
   const p = r.probe
   const lines = [
     `route ${r.engine} ${r.preset}: ${p.frames} frames in ${p.seconds} s (${p.fps} fps); frame p50 ${p.frameMs.p50} p95 ${p.frameMs.p95} p99 ${p.frameMs.p99} max ${p.frameMs.max} ms; >33 ms: ${p.over33}, >50 ms: ${p.over50}; gpu p50 ${r.gpuMs?.p50 ?? '-'} p95 ${r.gpuMs?.p95 ?? '-'}`,
-    `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.reached ? '' : ' (not reached)'}`).join(', ')}`,
+    `legs: ${r.legs.map(l => `${l.tag} ${l.seconds}s ${l.walkedM}m${l.hops ? ` (${l.hops} hops)` : ''}`).join(', ')}`,
     `histogram: ${Object.entries(p.histogram).map(([k, v]) => `${k}:${v}`).join(' ')}`,
-    `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}`,
+    `heap: ${JSON.stringify(p.heap)}; long tasks ${JSON.stringify(p.longTasks)}; new pipelines ${JSON.stringify(p.pipelines)}`,
     'system | mean | p50 | p95 | max | in spikes (ms, frames)',
     ...p.systems.slice(0, 40).map(s => `${s.label} | ${s.meanMs} | ${s.p50} | ${s.p95} | ${s.max} | ${s.inSpikesMs} (${s.spikeFrames})`),
     'worst frames:',
-    ...p.spikes.slice(0, 15).map(s => `  ${s.atS}s ${s.tag} ${s.ms} ms (cpu ${s.cpu}, outside ${s.outside}): ${s.top.map(([k, v]) => `${k} ${v}`).join(', ')}`),
+    ...p.spikes.slice(0, 15).map(s => `  ${s.atS}s ${s.tag} ${s.ms} ms (cpu ${s.cpu}, outside ${s.outside}, pipelines ${s.pipelines}/${s.pipelinesBefore} before): ${s.top.map(([k, v]) => `${k} ${v}`).join(', ')}`),
   ]
   return lines.join('\n')
 }

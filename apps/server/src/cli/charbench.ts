@@ -179,7 +179,16 @@ async function main(): Promise<void> {
         const adapter = await page.ev('__sroCharBench.adapter()')
         if (ROUTE) {
           const t0 = Date.now()
+          // the garbage the run makes (GC pauses are spikes): V8's sampling heap profiler over the whole route
+          if (flag('alloc')) {
+            await page.send('HeapProfiler.enable')
+            await page.send('HeapProfiler.startSampling', { samplingInterval: 65536, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
+          }
           const r = (await page.ev(`__sroCharBench.route()`, 1_800_000)) as Record<string, any>
+          if (flag('alloc')) {
+            const { profile } = await page.send('HeapProfiler.stopSampling', {}, 300_000)
+            writeFileSync(join(OUT, `${CONFIGS[ci]}.alloc.txt`), topAlloc(profile).join(String.fromCharCode(10)))
+          }
           writeFileSync(join(OUT, `${CONFIGS[ci]}.route.json`), JSON.stringify({ config: CONFIGS[ci], adapter, machineCpu: cpuDuring(t0, Date.now()), ...r }, null, 1))
           const report = page.logs.filter(l => l.includes('[bench] route')).at(-1) ?? ''
           summary.push(`## ${CONFIGS[ci]}`, report, `machine CPU during the run: ${JSON.stringify(cpuDuring(t0, Date.now()))}`, '')
@@ -379,6 +388,29 @@ function topSelf(p: { nodes: { id: number; callFrame: { functionName: string; ur
     byFn.set(k, (byFn.get(k) ?? 0) + t)
   }
   return [...byFn].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([k, t]) => `${(t / 1000).toFixed(0).padStart(7)} ms ${((100 * t) / total).toFixed(1).padStart(5)} %  ${k}`)
+}
+
+/** The sampling heap profile's allocators by self size (function + its caller), the top 60 (`--alloc`). */
+function topAlloc(p: { head: AllocNode }): string[] {
+  const by = new Map<string, number>()
+  let total = 0
+  const walk = (n: AllocNode, parent: string) => {
+    const cf = n.callFrame
+    const k = `${cf.functionName || '(anon)'} ${cf.url.split('/').pop()}:${cf.lineNumber + 1}`
+    if (n.selfSize) {
+      total += n.selfSize
+      const key = `${k}  <  ${parent}`
+      by.set(key, (by.get(key) ?? 0) + n.selfSize)
+    }
+    for (const c of n.children) walk(c, k)
+  }
+  walk(p.head, '')
+  return [`total sampled ${(total / 1048576).toFixed(0)} MB`, ...[...by].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([k, b]) => `${(b / 1048576).toFixed(1).padStart(8)} MB ${((100 * b) / total).toFixed(1).padStart(5)} %  ${k}`)]
+}
+interface AllocNode {
+  callFrame: { functionName: string; url: string; lineNumber: number }
+  selfSize: number
+  children: AllocNode[]
 }
 
 interface Page {
