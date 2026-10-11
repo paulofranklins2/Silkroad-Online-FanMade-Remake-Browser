@@ -11,7 +11,7 @@ import type { RegionData } from '../src/regions.ts'
 import type { ScatterHost } from '../src/scatter.ts'
 
 /** Tile ids: grass, road, grassy dirt, marble (Dirt-typed pavement), GL-C's weighted tile, forest, beach sand. */
-export const T = { grass: 1, road: 2, dirt: 3, marble: 4, weighted: 5, forest: 6, sand: 7 } as const
+export const T = { grass: 1, road: 2, dirt: 3, marble: 4, weighted: 5, forest: 6, sand: 7, trail: 8 } as const
 
 export const TILES: TileTexture[] = [
   { id: T.grass, typeName: 'Grass', source: 'c_grass_fld_03.ddj', file: 'tiles/g.webp', width: 4, height: 4, category: '' },
@@ -21,6 +21,7 @@ export const TILES: TileTexture[] = [
   { id: T.weighted, typeName: 'Grass', source: 'c_grass_hmfld_01.ddj', file: 'tiles/w.webp', width: 4, height: 4, category: '', grass: { weight: 0.3, base: [0.08, 0.14, 0.03], tip: [0.34, 0.44, 0.15] } },
   { id: T.forest, typeName: 'Forest', source: 'c_forest_01.ddj', file: 'tiles/f.webp', width: 4, height: 4, category: '' },
   { id: T.sand, typeName: 'Sand', source: 'asiaminor_sand_01.ddj', file: 'tiles/s.webp', width: 4, height: 4, category: '' },
+  { id: T.trail, typeName: 'Dirt', source: 'c_dust_fld_01.ddj', file: 'tiles/t.webp', width: 4, height: 4, category: '' },
 ]
 
 export interface RegionSpec {

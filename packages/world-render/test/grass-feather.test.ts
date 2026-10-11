@@ -82,6 +82,22 @@ describe('the edge feather (look item 1)', () => {
     expect(Math.max(...e)).toBeLessThanOrEqual(LINE + Math.ceil((GRASS_EDGE_WARP_M + GRASS_EDGE_FEATHER_M) * GRASS_HARD_SHARE) + 3)
   })
 
+  it('a bare dirt trail through grass stays bare but for a thin fringe (Overall Pass: grass on Jangan trails)', () => {
+    // a 6 m trail: cells cx 47..49 (metres 94..100)
+    const d = bake({ layers: [(cx) => (cx >= 47 && cx <= 49 ? [T.trail, 15] : null)] })
+    expect(table.path.has(T.trail)).toBe(true)
+    let mid = 0
+    for (let j = 0; j < 192; j++) for (let i = 96; i < 98; i++) mid = Math.max(mid, texel(d, i, j)[0])
+    expect(mid).toBe(0)
+    // the fringe: grass reaches at most ~2 m into the trail from either painted edge
+    let inside = 0, n = 0
+    for (let j = 0; j < 192; j++) for (let i = 95; i < 99; i++) {
+      inside += texel(d, i, j)[0]
+      n++
+    }
+    expect(inside / n).toBeLessThan(20)
+  })
+
   it('grassy dirt next to grass ramps down to its own density: no bald strip', () => {
     const d = bake({ layers: [(cx) => (cx >= 48 ? [T.dirt, 15] : null)] })
     let min = 255

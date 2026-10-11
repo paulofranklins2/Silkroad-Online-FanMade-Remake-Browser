@@ -42,6 +42,12 @@ const BARE_NAME = /marble|stone|rock|road|brick|pave|salt|water|ruin|dest/i
 const HARD_NAME = /marble|stone|rock|road|brick|pave|water/i
 /** Tile types that are hard whatever the name (GL-1: the swamp's c_dust_swmp_05 / _06 are typed Water). */
 const HARD_TYPE = /^(water|stone)$/i
+/**
+ * Overall Pass (grass): bare dirt and mud tiles with no grass (Jangan's walking trails, dirt roads, yards): the edge
+ * warp and feather reach only GRASS_PATH_SHARE onto them, so a trail keeps only a thin fringe instead of filling in.
+ */
+const PATH_TYPE = /^(dirt|mud)$/i
+const PATH_NAME = /dust|dirt|mud|path|trail|soil/i
 /** Slope fade: full grass at normal y ≥ 0.80 (36.9°), none below 0.70 (45.6°). */
 export const GRASS_SLOPE = [0.7, 0.8] as const
 /** No grass within this height above a water plane (m). */
@@ -116,6 +122,8 @@ export interface GrassTileTable {
   readonly slots: number
   /** Tile ids of hard bare ground (paving, stone, rock, roads, water: `HARD_NAME`, or typed Water / Stone): the edge feather never spills onto them. */
   readonly hard: ReadonlySet<number>
+  /** Overall Pass (grass): tile ids of bare trails and dirt roads (`PATH_TYPE` / `PATH_NAME`, no grass, not hard). */
+  readonly path: ReadonlySet<number>
 }
 
 /**
@@ -127,11 +135,13 @@ export function grassTileTable(tiles: readonly (Pick<TileTexture, 'id' | 'typeNa
   const weight = new Map<number, number>()
   const slot = new Map<number, number>()
   const hard = new Set<number>()
+  const path = new Set<number>()
   const pals: Array<{ base: [number, number, number]; tip: [number, number, number] }> = []
   for (const t of [...tiles].sort((a, b) => a.id - b.id)) {
     const w = tileGrassWeight(t)
     weight.set(t.id, w)
     if ((w <= 0 && HARD_NAME.test(`${t.source ?? ''} ${t.file ?? ''}`)) || HARD_TYPE.test(t.typeName ?? '')) hard.add(t.id)
+    else if (w <= 0 && (PATH_TYPE.test(t.typeName ?? '') || PATH_NAME.test(`${t.source ?? ''} ${t.file ?? ''}`))) path.add(t.id)
     if (w <= 0) continue
     let pal
     if (t.grass) {
@@ -164,7 +174,7 @@ export function grassTileTable(tiles: readonly (Pick<TileTexture, 'id' | 'typeNa
     const p = pals[i] ?? pals[0]!
     palette.push(...p.base, 1, ...p.tip, 1)
   }
-  return { weight, slot, palette, slots: pals.length, hard }
+  return { weight, slot, palette, slots: pals.length, hard, path }
 }
 
 // ---- the region bake ---------------------------------------------------------------------------------------------------
@@ -294,6 +304,10 @@ export const GRASS_BUSY_REACH = Math.ceil((GRASS_EDGE_WARP_M + Math.max(GRASS_ED
 const NO_SLOT = 255
 /** How far a warp or a feather tap reaches onto hard ground (roads, paving, rock), as a share: crisp verges there. */
 export const GRASS_HARD_SHARE = 0.3
+/** How far a warp or a feather tap reaches onto a bare trail or dirt road (GrassTileTable.path): a thin fringe. */
+export const GRASS_PATH_SHARE = 0.1
+/** The reach share of an extended cell's ground code (0 open, 1 hard, 2 path). */
+const GROUND_SHARE = [1, GRASS_HARD_SHARE, GRASS_PATH_SHARE] as const
 /** The extended cell grid's side: the region's 96 cells inside a margin of GRASS_BUSY_REACH on every side. */
 const EXT = CELLS + 2 * GRASS_BUSY_REACH
 
@@ -439,17 +453,17 @@ export class RegionGrassBake {
   /** One cell's composite (TERRAIN §2.3 order) of `src` into extended cell `e`. */
   private composite(src: GrassBakeSource, cx: number, cz: number, e: number): void {
     const { layers, layerCount } = src
-    const { weight, slot, hard: hardTiles } = this.table
+    const { weight, slot, hard: hardTiles, path: pathTiles } = this.table
     const corner = this.corner!
     let w0 = 0, w1 = 0, w2 = 0, w3 = 0
-    let h0 = false, h1 = false, h2 = false, h3 = false
+    let h0 = 0, h1 = 0, h2 = 0, h3 = 0
     let s = NO_SLOT
     for (let k = 0; k < layerCount; k++) {
       const o = ((k * CELLS + cz) * CELLS + cx) * 4
       if (!layers[o + 3]) break
       const id = layers[o]! | ((layers[o + 1]! & 3) << 8)
       const g = weight.get(id) ?? 0
-      const h = hardTiles.has(id)
+      const h = hardTiles.has(id) ? 1 : pathTiles?.has(id) ? 2 : 0
       const mask = layers[o + 2]!
       if (mask & 1) {
         w0 = g
@@ -475,7 +489,8 @@ export class RegionGrassBake {
     corner[q + 2] = w2
     corner[q + 3] = w3
     this.slotOf![e] = s
-    this.hard![e] = h0 || h1 || h2 || h3 ? 1 : 0
+    // any hard corner: hard; else any trail corner: path
+    this.hard![e] = h0 === 1 || h1 === 1 || h2 === 1 || h3 === 1 ? 1 : h0 || h1 || h2 || h3 ? 2 : 0
   }
 
   /**
@@ -645,9 +660,10 @@ export class RegionGrassBake {
         // the feathered path (GRASS_EDGE_WARP_M): a warp landing on hard ground shrinks to GRASS_HARD_SHARE
         edgeWarp(x, z, warp)
         let px = lx + warp[0]!, pz = lz - warp[1]!
-        if (hard[this.extAt(px, pz)]) {
-          px = lx + warp[0]! * GRASS_HARD_SHARE
-          pz = lz - warp[1]! * GRASS_HARD_SHARE
+        const wh = hard[this.extAt(px, pz)]!
+        if (wh) {
+          px = lx + warp[0]! * GROUND_SHARE[wh]!
+          pz = lz - warp[1]! * GROUND_SHARE[wh]!
         }
         const w0 = this.weightAt(px, pz)
         if (w0 > 0) {
@@ -659,7 +675,8 @@ export class RegionGrassBake {
             const tz = (hash2(zi * 11 + k * 31, xi * 5 + k * 17) - 0.5) * 2 * F
             let wk = this.weightAt(px + tx, pz + tz)
             // a tap on hard ground (a road, paving, rock) reaches only GRASS_HARD_SHARE as far
-            if (wk < w0 && hard[this.extAt(px + tx, pz + tz)]) wk = this.weightAt(px + tx * GRASS_HARD_SHARE, pz + tz * GRASS_HARD_SHARE)
+            const th = wk < w0 ? hard[this.extAt(px + tx, pz + tz)]! : 0
+            if (th) wk = this.weightAt(px + tx * GROUND_SHARE[th]!, pz + tz * GROUND_SHARE[th]!)
             if (wk < w0) {
               drop += w0 - wk
               if (wk < low) low = wk
