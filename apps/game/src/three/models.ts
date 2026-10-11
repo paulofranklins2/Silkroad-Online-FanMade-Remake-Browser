@@ -3517,6 +3517,26 @@ export class CharacterActor {
   }
 
   dispose(): void {
+    // Overall Pass (docs/PERF_OVERALL.md): every node's and mesh's dispose calls scene.stopAnimation(node), a scan of
+    // every running animatable of the scene (thousands with a crowd): ≈ 45 scans an actor made a despawn 100-150 ms.
+    // One scan stops this actor's animatables, and the per-node scans are skipped while it is torn down.
+    const scene = this.scene as Scene & { stopAnimation: Scene['stopAnimation'] }
+    const mine = new Set<unknown>([this.root, ...this.root.getDescendants(false), ...this.nodes])
+    for (const a of [...scene.animatables]) if (mine.has(a.target)) a.stop()
+    const own = Object.prototype.hasOwnProperty.call(scene, 'stopAnimation')
+    const stop = scene.stopAnimation
+    scene.stopAnimation = function (this: Scene, target: unknown, ...rest: unknown[]) {
+      if (!mine.has(target)) (stop as (...a: unknown[]) => void).call(this, target, ...rest)
+    } as Scene['stopAnimation']
+    try {
+      this.disposeNow()
+    } finally {
+      if (own) scene.stopAnimation = stop
+      else delete (scene as { stopAnimation?: unknown }).stopAnimation
+    }
+  }
+
+  private disposeNow(): void {
     this.disposed = true
     this.dressToken++
     this.actionSerial++
