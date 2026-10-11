@@ -141,5 +141,13 @@ its own look (the PCF filter on ANGLE is the first suspect). Before/after sheet:
   (dome: deck, volume, rain shafts, disc and core halo), keeps most of the key light and lets the shafts through.
 - **Clouds**: the volume march's jitter rotates per frame (8-frame IGN), so TAA removes the dotted grain at edges.
 - **SSR on High** while puddles (`ssr: 'puddles'`); **High PCF** filtered like Ultra.
-- Not done: Options bloom stays Off by default (Subtle looks right on lanterns but its low-res blur makes blocky
-  blobs on the bright pillar lamps); PCSS still waits for a float32 shadow map; no GTAO (SSAO2 as before).
+- **Bloom** (render/bloom.ts `MipBloom`, WebGPU): a mip chain (13-tap Karis prefilter with a soft knee and a firefly
+  clamp, 4 × 13-tap downsamples, tent upsamples) replaces Babylon's half-res box blur (blocky blobs on the pillar
+  lamps). Subtle (threshold 4, weight 0.1) is the preset default on Medium+ and Options' default.
+- **AO**: SSAO2 quality tiers (High half res 12 samples; Ultra full res 24 samples, radius 2.5 m, 16-tap bilateral blur,
+  occlusion floor 0.06). No GTAO.
+- **Shadows**: PCSS (contact hardening) on Ultra (`soft` 0.012) with a float32 colour shadow map (the game asks
+  WebGPU for `float32-filterable`); High soft PCF.
+- **Flying height**: the fog's sun glow, the horizon colour's saturation and the shafts' in-scatter fade with the eye's
+  height above the usual camera (no golden veil toward the sun).
+- Cost (1080p, RX 9060 XT, GPU p50): Medium 2–3.7 ms, High 3.8–4.8, Ultra 5.5–6.5 (Dropbox overall-pass/aaa/v2-*).
