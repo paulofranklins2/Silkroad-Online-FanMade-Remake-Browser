@@ -88,6 +88,10 @@ const ROUTE = flag('route')
 const UNMINIFIED = !!PROFILE || ROUTE
 const DIST = join(WORK, UNMINIFIED ? 'dist-prof' : 'dist')
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** --min-free-mb: below this much free RAM the bench stops (default 900). */
+const MIN_FREE_MB = Number(opt('min-free-mb', '900'))
+/** Every Chrome the bench started (killed when memory runs out). */
+const chromes: ChildProcess[] = []
 /** The whole machine's CPU use (%) every 2 s while the bench runs (the bench shares the machine with the server, its bots and whatever else runs). */
 const cpuLog: { at: number; pct: number; freeMB: number }[] = []
 function cpuSampler(): () => void {
@@ -97,6 +101,12 @@ function cpuSampler(): () => void {
     const now = total()
     const all = now.all - last.all
     cpuLog.push({ at: Date.now(), pct: all > 0 ? Math.round((1000 * (all - (now.idle - last.idle))) / all) / 10 : 0, freeMB: Math.round(freemem() / 1048576) })
+    // a shared PC running out of memory crashed twice during benches: below MIN_FREE_MB the bench's Chromes go and it stops
+    if (cpuLog.at(-1)!.freeMB < MIN_FREE_MB) {
+      console.error(`[charbench] only ${cpuLog.at(-1)!.freeMB} MB free: closing the bench's Chrome and stopping`)
+      for (const c of chromes) try { c.kill() } catch {}
+      process.exit(3)
+    }
     last = now
   }, 2000)
   return () => clearInterval(t)
@@ -449,6 +459,7 @@ async function openChrome(o: { preset: string; headed: boolean }): Promise<Page>
     ],
     { stdio: 'ignore' },
   )
+  chromes.push(chrome)
   type Target = { type: string; webSocketDebuggerUrl: string }
   let list: Target[] | null = null as Target[] | null
   for (let i = 0; i < 80 && !list; i++) {
