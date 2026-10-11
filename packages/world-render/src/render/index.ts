@@ -21,6 +21,7 @@
 import { Vector2, type AbstractMesh, type AssetContainer, type BaseTexture, type Camera, type Light, type Material, type Scene } from '@babylonjs/core'
 import type { SkyState, SkyStyle } from '../sky/types.ts'
 import type { ShelterMap } from '../weather/index.ts'
+import { applyAnisotropy } from './anisotropy.ts'
 import { installEffectCacheFix } from './babylon-fixes.ts'
 import { installLinkSettle } from './gpu-guards.ts'
 import { gpuInfoFromEngine, type GpuInfo } from './gpu.ts'
@@ -113,6 +114,7 @@ export class WorldRender {
     installEffectCacheFix()
     // WebGL2: settle each new program's link before its first draw (W9F BF-1: dropped draws on new variants).
     installLinkSettle()
+    applyAnisotropy(scene, this.quality.anisotropy)
   }
 
   /** The parts that are set, in call order. */
@@ -194,6 +196,7 @@ export class WorldRender {
 
   setQuality(q: Readonly<RenderQuality>): void {
     this.quality = q
+    applyAnisotropy(this.scene, q.anisotropy)
     for (const p of this.parts()) p.setQuality?.(q)
   }
 

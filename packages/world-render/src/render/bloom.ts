@@ -143,20 +143,27 @@ export class MipBloom {
       this.postProcesses.push(pp)
       return pp
     }
-    const pre = mk('sroBloomPrefilter', 0.5, ['sroBloomT'], [])
+    // A Babylon post-process's size is the size of its INPUT (the target the pass before it, or the scene, draws
+    // into), not of its output: each pass is sized like the level it reads. The prefilter reads the scene at full size
+    // (at 0.5 the whole HDR image was drawn at half resolution and the composite showed that copy upscaled: the soft,
+    // pixelated picture on Medium/High/Ultra since the AAA pass, worst on wide screens).
+    const pre = mk('sroBloomPrefilter', 1, ['sroBloomT'], [])
     pre.samples = Math.max(1, o.samples ?? 1)
     pre.onApplyObservable.add((e: Effect) => {
       const [t, k, c] = bloomPrefilter(this.threshold, this.exposure)
       e.setFloat4('sroBloomT', t, k, c, 0)
     })
     const downs: PostProcess[] = [pre]
-    for (let i = 1; i <= BLOOM_LEVELS_DOWN; i++) downs.push(mk('sroBloomDown', 0.5 / 2 ** i, [], []))
+    // down i reads level i − 1 (½ / 2^(i − 1)) and writes level i (¼ … 1/32)
+    for (let i = 1; i <= BLOOM_LEVELS_DOWN; i++) downs.push(mk('sroBloomDown', 0.5 / 2 ** (i - 1), [], []))
     for (let i = BLOOM_LEVELS_DOWN - 1; i >= 0; i--) {
+      // up i reads level i + 1 and writes level i, plus the level-i copy (the output of the pass that wrote it)
       const skip = downs[i]!
-      const up = mk('sroBloomUp', 0.5 / 2 ** i, [], ['sroSkip'])
+      const up = mk('sroBloomUp', 0.5 / 2 ** (i + 1), [], ['sroSkip'])
       up.onApplyObservable.add((e: Effect) => e.setTextureFromPostProcessOutput('sroSkip', skip))
     }
-    const comp = mk('sroBloomComposite', 1, ['sroBloomW'], ['sroScene'])
+    // the composite reads the ½ level and writes full size; the scene is the prefilter's (full-size) input
+    const comp = mk('sroBloomComposite', 0.5, ['sroBloomW'], ['sroScene'])
     comp.onApplyObservable.add((e: Effect) => {
       e.setTextureFromPostProcess('sroScene', pre)
       // the progressive upsample sums the levels: ÷ their count keeps the weight comparable to Babylon's

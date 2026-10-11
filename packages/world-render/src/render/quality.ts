@@ -146,6 +146,8 @@ export interface RenderQuality {
   foliage: { wind: boolean; translucency: boolean; csmCaster: boolean; grassRootShadow: boolean }
   /** Default render scale (the first-run logic lowers it on an iGPU, GAME). */
   renderScale: number
+  /** Anisotropic filtering of the textures (render/anisotropy.ts; absent: Babylon's 4×). */
+  anisotropy?: number
   /** W10-S: the coast's ocean (COAST §8.10). */
   ocean: OceanQuality
   /**
@@ -184,6 +186,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     waterMirror: false,
     foliage: { wind: false, translucency: false, csmCaster: false, grassRootShadow: false },
     renderScale: 1,
+    anisotropy: 4,
     ocean: {
       waves: 'gerstner', cascades: 3, fftSize: 0, tickHz: 0, grid: 16, levels: 6, reflection: null, shadows: false,
       cloudShadows: 'off', foam: 'band', shore: 'vertex', fogCut: true,
@@ -216,6 +219,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     waterMirror: false,
     foliage: { wind: true, translucency: true, csmCaster: false, grassRootShadow: false },
     renderScale: 1,
+    anisotropy: 4,
     ocean: {
       waves: 'worker-fft', cascades: 2, fftSize: 64, tickHz: 20, grid: 16, levels: 8, reflection: { cubeSize: 32, refreshS: 10 }, shadows: false,
       cloudShadows: 'off', foam: 'v1', shore: 'pixel', fogCut: true, skyProbe: { size: 64, refreshFrames: 30 }, glint: true,
@@ -248,6 +252,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     waterMirror: false,
     foliage: { wind: true, translucency: true, csmCaster: true, grassRootShadow: true },
     renderScale: 1,
+    anisotropy: 8,
     ocean: {
       waves: 'gpu-fft', cascades: 4, fftSize: 128, tickHz: 0, grid: 32, levels: 8, reflection: { cubeSize: 64, refreshS: 5 }, shadows: true,
       cloudShadows: 'ground', foam: 'whitecaps', shore: 'pixel', fogCut: true, skyProbe: { size: 128, refreshFrames: 8 }, glint: true,
@@ -276,6 +281,7 @@ export const RENDER_PRESETS: Readonly<Record<RenderPreset, Readonly<RenderQualit
     waterMirror: true,
     foliage: { wind: true, translucency: true, csmCaster: true, grassRootShadow: true },
     renderScale: 1,
+    anisotropy: 16,
     ocean: {
       waves: 'gpu-fft', cascades: 4, fftSize: 256, tickHz: 0, grid: 64, levels: 8, reflection: { cubeSize: 64, refreshS: 2 }, shadows: true,
       cloudShadows: 'all', foam: 'whitecaps', shore: 'pixel', fogCut: true, skyProbe: { size: 256, refreshFrames: 4 }, glint: true,
