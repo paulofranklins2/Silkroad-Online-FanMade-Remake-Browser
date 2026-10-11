@@ -906,6 +906,7 @@ export class RenderPost implements RenderPart {
       const target = (camera as { target?: { y: number } } | null)?.target
       this.fog.groundY = LIGHT_LOOK.groundMist && target && Number.isFinite(target.y) ? target.y : null
       this.fog.mist = LIGHT_LOOK.groundMist ? mistLevel(sky.sunElevationDeg, sky.t, this.weather) : 0
+      this.fog.desaturate = LIGHT_LOOK.groundMist ? Math.min(0.85, 0.35 * this.weather.cloud + 0.6 * this.weather.rain) : 0
       this.fog.update(sky, this.exposure, this.plan.toneMap)
       const ring = this.quality.horizonRingFog && sky.horizonRing !== null
       if (ring !== this.fog.ringActive) this.fog.setActive(true, ring)

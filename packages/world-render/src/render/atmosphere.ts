@@ -70,7 +70,7 @@ export function mistLevel(sunElevationDeg: number, t: number, w: { rain: number;
   const [, wm, we, wn] = atmosphereWeights(sunElevationDeg, t)
   const low = 1 - smoothstep(6, 16, sunElevationDeg)
   const time = wm * MIST.dawn * Math.max(low, 0.35) + we * MIST.dusk * low + wn * MIST.night
-  const after = MIST.afterRain * clamp01(w.wetness) * (1 - 0.6 * clamp01(w.rain)) * (0.5 + 0.5 * low)
+  const after = MIST.afterRain * clamp01(w.wetness) * (1 - 0.85 * clamp01(w.rain)) * (0.5 + 0.5 * low)
   return clamp01(Math.max(time, after))
 }
 

@@ -115,6 +115,8 @@ export class HeightFog {
   groundY: number | null = null
   /** Item 16: the ground mist level 0..1 (× MIST_MAX; render/atmosphere.ts mistLevel). */
   mist = 0
+  /** Item 16: how far the fog colour greys toward a cool neutral (rain and overcast: grey air, gold only toward the sun). */
+  desaturate = 0
   private activeValue = false
   private readonly lin: [number, number, number] = [0, 0, 0]
   private ringValue = false
@@ -162,6 +164,10 @@ export class HeightFog {
     const inv = 1 / Math.max(1e-3, exposure)
     // The fog colour shows as designed after the post's single tone curve (D4).
     const f = displayToExposed(sky.fogColor, toneMap, this.lin)
+    const g = Math.min(1, Math.max(0, this.desaturate))
+    const y = 0.2126 * f[0]! + 0.7152 * f[1]! + 0.0722 * f[2]!
+    const cool = [0.96, 1.0, 1.06] as const
+    for (let c = 0; c < 3; c++) f[c] = f[c]! + (y * cool[c]! - f[c]!) * g
     this.color.set(f[0]! * inv, f[1]! * inv, f[2]! * inv, inv)
     const d = sky.sunDir
     const up = Math.max(0, Math.min(1, (sky.sunElevationDeg + 4) / 8))
