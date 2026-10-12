@@ -33,6 +33,13 @@ export const CLOTH_AMP_MAX_M = 1
 /** A tent's panels billow this fraction of a hanging piece's sway. */
 export const CLOTH_TENT_SCALE = 0.6
 
+/**
+ * Overall Pass (live feedback: the plaza is nearly windless): cloth's own floor on the wind strength (0..1, gustMs / 20;
+ * 0.22 ≈ 4.5 m/s), raised by a per-piece gust burst (phase-offset, so flags never move in step); the response is
+ * sqrt(strength) so calm air ripples clearly, capped at CLOTH_WIND_CAP so storms do not over-flap.
+ */
+export const CLOTH_MIN_WIND = 0.22
+export const CLOTH_WIND_CAP = 0.85
 /** Overall Pass: a UV-pinned piece's (`banner`, `flag`) flutter along its normal, metres per metre of sway amplitude. */
 export const CLOTH_FLUTTER = 0.45
 
@@ -58,9 +65,12 @@ export const CLOTH_VERTEX_DEFS_WGSL = /* wgsl */ `fn sroClothSway(pv: vec4f, wp:
   let c = clamp(u, 0.0, 1.0);
   let w = select(c * c * step(u, ${F(CLOTH_BAND_END)}), sin(3.14159265 * c), tent);
   let q = select(pv.w - wp.y * 2.2, pv.w - c * 4.5, uvk) + dot(wp.xz, vec2f(0.9, 0.7));
-  let gust = 0.55 + 0.45 * sin(t * 0.7 + pv.w * 0.3);
+  let gn = max(sin(t * 0.29 + pv.w * 1.3), 0.0);
+  let burst = gn * gn * gn * gn;
+  let zz = min(sqrt(max(z, ${F(CLOTH_MIN_WIND)} + 0.12 * burst)), ${F(CLOTH_WIND_CAP)});
+  let gust = 0.55 + 0.45 * sin(t * 0.7 + pv.w * 0.3) + 0.35 * burst;
   let flap = sin(t * 3.1 + q) * 0.35 + sin(t * 5.3 + pv.w * 0.7 + q * 1.7) * 0.12;
-  let a = z * min(${F(CLOTH_AMP_PER_M)} * h, ${F(CLOTH_AMP_MAX_M)}) * w * gust * select(1.0, ${F(CLOTH_TENT_SCALE)}, tent);
+  let a = zz * min(${F(CLOTH_AMP_PER_M)} * h, ${F(CLOTH_AMP_MAX_M)}) * w * gust * select(1.0, ${F(CLOTH_TENT_SCALE)}, tent);
   let s = a * (0.55 + flap);
   let fl = select(0.0, ${F(CLOTH_FLUTTER)} * a * sin(t * 6.3 - c * 7.0 + q * 0.5), uvk);
   let sl = select(2.0 * s / (max(c, 0.1) * h), 0.0, tent);
@@ -84,9 +94,12 @@ export const CLOTH_VERTEX_DEFS_GLSL = /* glsl */ `vec4 sroClothSway(vec4 pv, vec
   float c = clamp(u, 0.0, 1.0);
   float w = tent ? sin(3.14159265 * c) : c * c * step(u, ${F(CLOTH_BAND_END)});
   float q = (uvk ? pv.w - c * 4.5 : pv.w - wp.y * 2.2) + dot(wp.xz, vec2(0.9, 0.7));
-  float gust = 0.55 + 0.45 * sin(t * 0.7 + pv.w * 0.3);
+  float gn = max(sin(t * 0.29 + pv.w * 1.3), 0.0);
+  float burst = gn * gn * gn * gn;
+  float zz = min(sqrt(max(z, ${F(CLOTH_MIN_WIND)} + 0.12 * burst)), ${F(CLOTH_WIND_CAP)});
+  float gust = 0.55 + 0.45 * sin(t * 0.7 + pv.w * 0.3) + 0.35 * burst;
   float flap = sin(t * 3.1 + q) * 0.35 + sin(t * 5.3 + pv.w * 0.7 + q * 1.7) * 0.12;
-  float a = z * min(${F(CLOTH_AMP_PER_M)} * h, ${F(CLOTH_AMP_MAX_M)}) * w * gust * (tent ? ${F(CLOTH_TENT_SCALE)} : 1.0);
+  float a = zz * min(${F(CLOTH_AMP_PER_M)} * h, ${F(CLOTH_AMP_MAX_M)}) * w * gust * (tent ? ${F(CLOTH_TENT_SCALE)} : 1.0);
   float s = a * (0.55 + flap);
   float fl = uvk ? ${F(CLOTH_FLUTTER)} * a * sin(t * 6.3 - c * 7.0 + q * 0.5) : 0.0;
   float sl = tent ? 0.0 : 2.0 * s / (max(c, 0.1) * h);
@@ -149,10 +162,13 @@ export function clothSway(
   const c = Math.min(1, Math.max(0, u))
   const w = tent ? Math.sin(3.14159265 * c) : c * c * (u <= CLOTH_BAND_END ? 1 : 0)
   const q = (uvk ? phase - c * 4.5 : phase - p[1] * 2.2) + p[0] * 0.9 + p[2] * 0.7
-  const gust = 0.55 + 0.45 * Math.sin(t * 0.7 + phase * 0.3)
+  const gn = Math.max(Math.sin(t * 0.29 + phase * 1.3), 0)
+  const burst = gn ** 4
+  const gust = 0.55 + 0.45 * Math.sin(t * 0.7 + phase * 0.3) + 0.35 * burst
   const flap = Math.sin(t * 3.1 + q) * 0.35 + Math.sin(t * 5.3 + phase * 0.7 + q * 1.7) * 0.12
   const z = Math.min(1, Math.max(0, strength))
-  const a = z * Math.min(CLOTH_AMP_PER_M * h, CLOTH_AMP_MAX_M) * w * gust * (tent ? CLOTH_TENT_SCALE : 1)
+  const zz = Math.min(Math.sqrt(Math.max(z, CLOTH_MIN_WIND + 0.12 * burst)), CLOTH_WIND_CAP)
+  const a = zz * Math.min(CLOTH_AMP_PER_M * h, CLOTH_AMP_MAX_M) * w * gust * (tent ? CLOTH_TENT_SCALE : 1)
   const s = a * (0.55 + flap)
   const fl = uvk ? CLOTH_FLUTTER * a * Math.sin(t * 6.3 - c * 7.0 + q * 0.5) : 0
   const [sx, sy, sn] = awn ? [0.5 * s, 0.6 * a * flap, 0] : [s, tent ? 0.12 * a * flap : 0.25 * s * s / h, fl]

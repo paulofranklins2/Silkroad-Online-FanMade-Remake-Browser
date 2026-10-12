@@ -127,7 +127,8 @@ describe('clothSway (the chunk\'s mirror)', () => {
     // The flutter runs along the normal (x here), the sway along the wind (z).
     expect(Math.max(...times.map(t => Math.abs(clothSway(banner, at(4), 1, t, [0, 1], [0.5, 1], n)[0])))).toBeGreaterThan(0.1)
     // Calm breathes, a storm flaps.
-    expect(edge(banner, [0.5, 1], 0.15)).toBeLessThan(edge(banner, [0.5, 1], 1) * 0.25)
+    expect(edge(banner, [0.5, 1], 0)).toBeGreaterThan(0.25)
+    expect(edge(banner, [0.5, 1], 0)).toBeLessThan(edge(banner, [0.5, 1], 1) * 0.8)
   })
 
   it('below a converter band nothing moves (the pennant\'s tent pegs), kind 0 never moves', () => {
@@ -143,9 +144,11 @@ describe('clothSway (the chunk\'s mirror)', () => {
     const pv: [number, number, number, number] = [10, 2.4, HANG, 0.7]
     const calm = Math.max(...times.map(t => mag(clothSway(pv, at(7.6), 0.15, t))))
     const gale = Math.max(...times.map(t => mag(clothSway(pv, at(7.6), 1, t))))
-    expect(calm).toBeGreaterThan(0.02)
-    expect(calm).toBeLessThan(0.2)
-    expect(gale).toBeGreaterThan(calm * 4)
+    // Overall Pass: cloth has its own breeze floor (~4.5 m/s) and a sqrt response, capped for storms.
+    expect(calm).toBeGreaterThan(0.1)
+    expect(calm).toBeLessThan(0.75)
+    expect(gale).toBeGreaterThan(calm * 1.3)
+    expect(gale).toBeLessThan(CLOTH_AMP_MAX_M * 1.5)
   })
 })
 
