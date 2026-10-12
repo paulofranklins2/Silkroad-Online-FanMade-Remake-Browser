@@ -54,7 +54,7 @@ describe('the cloth chunk in the SRO_CLOTH_WIND slot', () => {
 
   it('carries TL-M\'s chunk: one function in both languages, the same numbers, no new uniform, sampler or varying', () => {
     expect(CLOTH_VERTEX_DEFS_WGSL).toContain('fn sroClothSway(')
-    expect(CLOTH_VERTEX_DEFS_GLSL).toContain('vec2 sroClothSway(')
+    expect(CLOTH_VERTEX_DEFS_GLSL).toContain('vec4 sroClothSway(')
     const nums = (s: string) => (s.match(/\d+\.\d+/g) ?? []).sort()
     expect(nums(CLOTH_VERTEX_DEFS_WGSL)).toEqual(nums(CLOTH_VERTEX_DEFS_GLSL))
     expect(nums(CLOTH_WORLDPOS_WGSL)).toEqual(nums(CLOTH_WORLDPOS_GLSL))
@@ -107,6 +107,27 @@ describe('clothSway (the chunk\'s mirror)', () => {
     expect(Math.max(...times.map(t => mag(clothSway(pv, at(3.5), 0.6, t))))).toBeGreaterThan(0.05)
     const awn: [number, number, number, number] = [3, 1, AWN, 2]
     expect(Math.max(...times.map(t => Math.abs(clothSway(awn, at(2), 0.6, t)[1])))).toBeGreaterThan(0.02)
+  })
+
+  it('Overall Pass: a banner pins its texture top, a flag its pole side, in one primitive at any height', () => {
+    const BANNER = 4, FLAG = 5
+    const n: [number, number, number] = [1, 0, 0]
+    const banner: [number, number, number, number] = [0, 6.75, BANNER, 1.1]
+    const flag: [number, number, number, number] = [0, 3, FLAG, 2.2]
+    for (const t of times) {
+      // The pin row stays put whatever the vertex height (many banners in one primitive).
+      expect(mag(clothSway(banner, at(10), 1, t, [0, 1], [0.5, 0], n))).toBeLessThan(1e-9)
+      expect(mag(clothSway(banner, at(25), 1, t, [0, 1], [0.9, 0], n))).toBeLessThan(1e-9)
+      expect(mag(clothSway(flag, at(28), 1, t, [0, 1], [0, 0.5], n))).toBeLessThan(1e-9)
+    }
+    const edge = (pv: typeof banner, uv: [number, number], z: number) => Math.max(...times.map(t => mag(clothSway(pv, at(4), z, t, [0, 1], uv, n))))
+    expect(edge(banner, [0.5, 1], 1)).toBeGreaterThan(0.3)
+    expect(edge(banner, [0.5, 1], 1)).toBeLessThan(CLOTH_AMP_MAX_M * 1.6)
+    expect(edge(flag, [1, 0.5], 1)).toBeGreaterThan(0.3)
+    // The flutter runs along the normal (x here), the sway along the wind (z).
+    expect(Math.max(...times.map(t => Math.abs(clothSway(banner, at(4), 1, t, [0, 1], [0.5, 1], n)[0])))).toBeGreaterThan(0.1)
+    // Calm breathes, a storm flaps.
+    expect(edge(banner, [0.5, 1], 0.15)).toBeLessThan(edge(banner, [0.5, 1], 1) * 0.25)
   })
 
   it('below a converter band nothing moves (the pennant\'s tent pegs), kind 0 never moves', () => {

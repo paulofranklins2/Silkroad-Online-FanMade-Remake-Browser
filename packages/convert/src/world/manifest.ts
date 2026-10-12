@@ -383,8 +383,9 @@ export interface WorldModelTreeSwap {
 }
 
 /** Cloth sway kinds: pinned along the top (flags, banners, signs), along the high edge (awnings), at the base (tents). */
-export type WorldClothKind = 'hanging' | 'awning' | 'tent'
-export const WORLD_CLOTH_KINDS: readonly WorldClothKind[] = ['hanging', 'awning', 'tent']
+// Overall Pass: `banner` (pinned at its texture's top, UV v) and `flag` (pinned at its pole, UV u): world-render town/cloth-retail.ts.
+export type WorldClothKind = 'hanging' | 'awning' | 'tent' | 'banner' | 'flag'
+export const WORLD_CLOTH_KINDS: readonly WorldClothKind[] = ['hanging', 'awning', 'tent', 'banner', 'flag']
 
 export interface WorldModelCloth {
   /** glTF material name in the model's glb. */

@@ -265,14 +265,30 @@ ${CLOTH_VERTEX_DEFS_GLSL}#endif
 const CLOTH_MOVE_WGSL = `#ifdef SRO_CLOTH_WIND
 {
   let clothPivot = vertexInputs.${FOLIAGE_PIVOT_KIND};
+#ifdef NORMAL
+  let clothNormal = vertexOutputs.vNormalW;
+#else
+  let clothNormal = vec3f(0.0, 1.0, 0.0);
+#endif
 ${CLOTH_WORLDPOS_WGSL}  vertexOutputs.vPositionW = worldPos.xyz;
+#ifdef NORMAL
+  vertexOutputs.vNormalW = clN;
+#endif
 }
 #endif
 `
 const CLOTH_MOVE_GLSL = `#ifdef SRO_CLOTH_WIND
 {
   vec4 clothPivot = ${FOLIAGE_PIVOT_KIND};
+#ifdef NORMAL
+  vec3 clothNormal = vNormalW;
+#else
+  vec3 clothNormal = vec3(0.0, 1.0, 0.0);
+#endif
 ${CLOTH_WORLDPOS_GLSL}  vPositionW = worldPos.xyz;
+#ifdef NORMAL
+  vNormalW = clN;
+#endif
 }
 #endif
 `

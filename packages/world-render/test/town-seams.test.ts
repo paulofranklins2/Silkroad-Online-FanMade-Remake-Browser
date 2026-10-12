@@ -503,7 +503,7 @@ describe('cloth in the +sheen groups (TOWN_LIFE §5.1, F1): a per-piece pivot fr
     expect([pinned[0], pinned[1], pinned[2]]).toEqual([6.5, Math.fround(0.8), 2])
     const flat = clothPivots([0, 1, 0, 1, 1, 1], at(0, 0, 0), { kind: 'hanging', pin: null })
     expect(flat[1]).toBeCloseTo(0.05, 6)
-    expect([clothKindCode('hanging'), clothKindCode('awning'), clothKindCode('tent'), clothKindCode('flag'), clothKindCode(null)]).toEqual([1, 2, 3, 0, 0])
+    expect([clothKindCode('hanging'), clothKindCode('awning'), clothKindCode('tent'), clothKindCode('banner'), clothKindCode('flag'), clothKindCode('pennant'), clothKindCode(null)]).toEqual([1, 2, 3, 4, 5, 0, 0])
     expect(clothOf({ cloth: 'tent', clothPin: [1, -2] })).toEqual({ kind: 'tent', pin: null })
     expect(clothOf({ cloth: 'sail' as never })).toBeNull()
     expect(clothOf(undefined)).toBeNull()

@@ -17,6 +17,7 @@ import { PbrSurfaces, SroSurfacePlugin } from './pbr/surface-plugin.ts'
 import { useWindowedLightFalloff } from './render/babylon-fixes.ts'
 import { UvScrollShared, uvScrollOf, type UvScroll } from './uv-scroll.ts'
 import type { WorldModelCloth } from '../../convert/src/world/manifest.ts'
+import { withRetailCloth } from './town/cloth-retail.ts'
 
 /** The sidecar fields this module reads (gltf/convert.ts SidecarMaterial). */
 export interface SidecarMaterialLite {
@@ -51,10 +52,13 @@ export interface SidecarMaterialLite {
 }
 
 /** How a cloth piece sways (TOWN_LIFE §5.1; packages/shared town.ts TownClothKind): pinned along the top, along its high edge, or at the base. */
-export type ClothKind = 'hanging' | 'awning' | 'tent'
+// Overall Pass: `banner` hangs from its texture's top (UV v = 0 pinned, the weight grows down the texture, so several
+// banners in one primitive each hang from their own top); `flag` streams from its pole (UV u = 0 pinned). Their pivot's
+// pin is the UV pin and its height the cloth's length (m); town/cloth-retail.ts lists the retail pieces.
+export type ClothKind = 'hanging' | 'awning' | 'tent' | 'banner' | 'flag'
 
 /** The cloth kinds; a kind's shader code is its index + 1 (0 = no sway: a `+sheen` piece without a cloth record). */
-export const CLOTH_KINDS: readonly ClothKind[] = ['hanging', 'awning', 'tent']
+export const CLOTH_KINDS: readonly ClothKind[] = ['hanging', 'awning', 'tent', 'banner', 'flag']
 
 /** The shader's code of a cloth kind (CLOTH_KINDS index + 1), 0 for none or an unknown kind. */
 export function clothKindCode(kind: string | null | undefined): number {
@@ -389,8 +393,10 @@ export class ObjectMaterials {
     // TX-R: a map set swaps in once its textures are uploaded (pbr/maps.ts); the retail texture is freed then (D41).
     const freeRetail = (tex: BaseTexture) => disposeSwapped(container, new Set([tex]), this.materials)
     const records: MaterialBatchRecord[] = []
+    // Overall Pass: the retail banners and flags (town/cloth-retail.ts) join the manifest's cloth entries.
+    const retailCloth = withRetailCloth(model?.source, model?.cloth)
     for (const src of container.materials) {
-      const side = withManifestCloth(byName.get(src.name.toLowerCase()), src.name, model?.cloth)
+      const side = withManifestCloth(byName.get(src.name.toLowerCase()), src.name, retailCloth)
       const mat = index ? this.toPbr(src, side, lmBytes, index, model, freeRetail) : this.fromPbr(src, side, lmBytes)
       replaced.set(src, mat)
       // UV scroll: the retail texture flow, on both paths (the plugin moves every UV1 texture of the material).

@@ -290,7 +290,12 @@ export function clothPivots(local: ArrayLike<number>, matrices: ArrayLike<number
     const wz = matrices[o + 2]! * cx + matrices[o + 6]! * cy + matrices[o + 10]! * cz + matrices[o + 14]!
     let pin: number
     let height: number
-    if (cloth.pin) {
+    if (cloth.kind === 'banner' || cloth.kind === 'flag') {
+      // Overall Pass: a UV-pinned piece: the pin is the UV coordinate (v for a banner, u for a flag), the height its
+      // length (m; the converter's, scaled per instance, else the piece's world height).
+      pin = cloth.pin ? cloth.pin[0] : 0
+      height = cloth.pin ? (scales ? cloth.pin[1] * scales[k]! : cloth.pin[1]) : hi - lo
+    } else if (cloth.pin) {
       pin = m1 * cx + m5 * cloth.pin[0] + m9 * cz + m13
       // W12-SA (S-SCALE): the converter's hanging height is model space (the matrices carry the pin's scale already).
       height = scales ? cloth.pin[1] * scales[k]! : cloth.pin[1]

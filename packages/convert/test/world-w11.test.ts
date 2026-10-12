@@ -133,7 +133,7 @@ describe('the pass order with the town dressing and the cloth reclass', () => {
     const res = await runWorldPasses(inp, {
       cloth: () => [
         { model: 9, cloth: [{ material: 'x', kind: 'hanging' }] },
-        { model: 1, cloth: [{ material: 'x', kind: 'flag' as never }] },
+        { model: 1, cloth: [{ material: 'x', kind: 'pennant' as never }] },
         { model: 0, cloth: [] },
         { model: 1, cloth: [{ material: 'ok', kind: 'tent' }] },
         { model: 1, cloth: [{ material: 'again', kind: 'tent' }] },
@@ -220,7 +220,7 @@ describe('manifest: the wave-11 fields are additive', () => {
     expect(bad(m => (m.town = { file: null, dressing: null }))).toEqual(['town'])
     expect(bad(m => (m.town = { file: '../town.json', dressing: null }))).toEqual(['town'])
     expect(bad(m => (m.town = { file: 'town.json' } as never))).toEqual(['town'])
-    expect(bad(m => (m.models[1] = { ...m.models[1]!, cloth: [{ material: 'x', kind: 'flag' as never }] }))).toEqual(['models[1].cloth'])
+    expect(bad(m => (m.models[1] = { ...m.models[1]!, cloth: [{ material: 'x', kind: 'pennant' as never }] }))).toEqual(['models[1].cloth'])
     expect(bad(m => (m.models[1] = { ...m.models[1]!, cloth: [] }))).toEqual(['models[1].cloth'])
     expect(bad(m => (m.models[1] = { ...m.models[1]!, cloth: [{ material: 'x', kind: 'tent', height: 0 }] }))).toEqual(['models[1].cloth'])
     expect(bad(m => (m.report.town = { placements: { dropped: [], resnapped: [] }, models: 0, clothModels: 0 } as never))).toEqual(['report.town'])
